@@ -2922,7 +2922,7 @@ def render_primary_sidebar_controls() -> dict:
                 "1) Upfront (A1–A5)",
                 "2) Life cycle embodied (excl. B6, B7 and D)",
                 "3) Upfront + life cycle embodied (1+2)",
-                "4) Materials (A1–A3 emissions + mass)",
+                "4) Materials (A1–A3 emissions + mass) [WIP don't use]",
             ],
             index=0,
         )
