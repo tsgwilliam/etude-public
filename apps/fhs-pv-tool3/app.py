@@ -102,7 +102,10 @@ SUMMARY_UNIT_FONT_SIZE = "0.72em"
 SUMMARY_UNIT_FONT_WEIGHT = "600"
 SUMMARY_UNIT_COLOUR = "#444444"
 
-LOGO_PATH = Path("resources") / "Etude-logo-animation-v005 Single spin.gif"
+APP_DIR = Path(__file__).resolve().parent
+RESOURCE_DIR = APP_DIR / "resources"
+EPW_DIRECTORY = RESOURCE_DIR / "epw"
+LOGO_PATH = RESOURCE_DIR / "Etude-logo-animation-v005 Single spin.gif"
 LOGO_WIDTH = 180
 
 CHART_HEIGHT = 420

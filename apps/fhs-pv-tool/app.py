@@ -100,7 +100,10 @@ DIVIDER_MIN_HEIGHT_PX = 900
 # LOGO
 # -----------------------------------------------------------------------------
 
-LOGO_PATH = Path("resources") / "Etude-logo-animation-v005 Single spin.gif"
+APP_DIR = Path(__file__).resolve().parent
+RESOURCE_DIR = APP_DIR / "resources"
+EPW_DIRECTORY = RESOURCE_DIR / "epw"
+LOGO_PATH = RESOURCE_DIR / "Etude-logo-animation-v005 Single spin.gif"
 LOGO_WIDTH = 180
 
 
