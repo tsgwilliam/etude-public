@@ -4,4 +4,4 @@ plotly
 openpyxl
 xlrd
 kaleido
-nrel-pysam>=6.0.0
+NREL-PySAM==7.1.0

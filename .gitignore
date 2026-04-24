@@ -1,3 +1,26 @@
+# Python environments
+
+.venv/
+
+apps/fhs-pv-tool/.venv/
+
+# Frontend local/build artefacts
+
+apps/fhs-pv-tool/components/section2_drag_editor/frontend/node_modules/
+
+apps/fhs-pv-tool/components/section2_drag_editor/frontend/build/
+
+apps/fhs-pv-tool/components/section2_drag_editor/frontend/dist/
+
+# Common junk
+
 __pycache__/
+
 *.pyc
+
 .DS_Store
+
+# Old local frontend app - keep local only
+apps/fhs-pv-tool/app_frontend.py
+apps/fhs-pv-tool/components/
+package-lock.json
