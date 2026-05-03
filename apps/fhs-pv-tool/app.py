@@ -15,7 +15,7 @@ except ImportError:
     pvwatts = None
 
 
-st.set_page_config(page_title="Etude Part L 2026 PV requirement calculator", layout="wide")
+st.set_page_config(page_title="Part L 2026 Photovoltaic Array Calculator", layout="wide")
 
 # -----------------------------------------------------------------------------
 # Part L reference assumptions
@@ -571,6 +571,45 @@ def build_comparison_chart(
 
     return fig
 
+def build_part_l_capacity_progress_chart(required_kwp: float, actual_kwp: float) -> go.Figure:
+    achieved_pct = (actual_kwp / required_kwp * 100.0) if required_kwp > 0 else 0.0
+    achieved_pct_capped = min(achieved_pct, 100.0)
+    shortfall_pct = max(100.0 - achieved_pct_capped, 0.0)
+
+    fig = go.Figure()
+
+    fig.add_bar(
+        x=["Part L photovoltaic target"],
+        y=[achieved_pct_capped],
+        name="Achieved",
+        marker_color="#17C497",
+    )
+
+    fig.add_bar(
+        x=["Part L photovoltaic target"],
+        y=[shortfall_pct],
+        name="Shortfall",
+        marker_color="#E6E6E6",
+    )
+
+    fig.update_layout(
+        barmode="stack",
+        height=300,
+        margin=dict(l=60, r=20, t=24, b=40),
+        yaxis_title="% of target kWp",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="#333333"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+
+    fig.update_yaxes(
+        range=[0, max(110.0, achieved_pct * 1.10)],
+        gridcolor="#E6E6E6",
+    )
+    fig.update_xaxes(showgrid=False)
+
+    return fig
 
 def format_pass_fail(actual: float, target: float) -> str:
     return "Pass" if actual >= target else "Shortfall"
@@ -2462,7 +2501,7 @@ def build_plane_table_rows(
 header_left, header_right = st.columns([5, 1.5])
 
 with header_left:
-    st.title("Etude Part L 2026 PV requirement calculator")
+    st.title("Part L 2026 Photovoltaic Array Calculator")
 
 with header_right:
     if LOGO_PATH.exists():
@@ -2478,7 +2517,7 @@ with header_right:
 # -----------------------------------------------------------------------------
 # Part L target
 # -----------------------------------------------------------------------------
-render_section_title("part_l_target", "Part L target")
+render_section_title("part_l_target", "Part L photovoltaic target")
 with st.container(border=True):
     part_l_top = st.columns(3)
 
@@ -2567,20 +2606,17 @@ with st.container(border=True):
     )
     part_l_required_panel_count = math.ceil(part_l_required_kwp / standardised_module_power_kwp)
 
-    part_l_summary_cols = st.columns(3)
+    part_l_summary_cols = st.columns(2)
+
     with part_l_summary_cols[0]:
         render_summary_card(
-            "Part L required generation",
-            f"{part_l_required_generation_kwh:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/a</span>",
-        )
-    with part_l_summary_cols[1]:
-        render_summary_card(
-            "Part L required kWp",
+            "Target photovoltaic array capacity",
             f"{part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
         )
-    with part_l_summary_cols[2]:
+
+    with part_l_summary_cols[1]:
         render_summary_card(
-            "Part L required panel count",
+            "Equivalent standardised panel count",
             f"{part_l_required_panel_count:,.0f}",
         )
 
@@ -2589,7 +2625,7 @@ with st.container(border=True):
 # -----------------------------------------------------------------------------
 # Building PV layout
 # -----------------------------------------------------------------------------
-render_section_title("building_pv_layout", "Building PV layout")
+render_section_title("building_pv_layout", "Photovoltaic array layout")
 with st.container(border=True):
     building_top = st.columns([1.15, 1.0])
     with building_top[0]:
@@ -2906,9 +2942,10 @@ with st.container(border=True):
 
     source_state = deepcopy(st.session_state["section2_editor_source_state"])
 
-    st.markdown("**Interactive roof editor (beta)**")
+    st.markdown("**Interactive array layout editor (beta)**")
     st.caption(
-        "Use the controls below to move and resize obstacles and PV rectangles. "
+        "Use the controls below to define usable PV rectangles and optional obstacles. "
+        "Panels are then fitted automatically inside the available PV rectangles. "
         "Movement step defaults to 0.10 m."
     )
 
@@ -2944,19 +2981,29 @@ with st.container(border=True):
 
     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
+    part_l_capacity_progress_pct = (
+        editor_metrics["valid_kwp"] / part_l_required_kwp * 100.0
+        if part_l_required_kwp > 0
+        else 0.0
+    )
+
     editor_summary_cols = st.columns(4)
+
     with editor_summary_cols[0]:
         render_summary_card(
-            "Valid annual generation",
-            f"{editor_metrics['valid_generation_kwh']:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/a</span>",
-        )
-    with editor_summary_cols[1]:
-        render_summary_card(
-            "Valid kWp",
+            "Array capacity",
             f"{editor_metrics['valid_kwp']:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
         )
+
+    with editor_summary_cols[1]:
+        render_summary_card(
+            "Part L target achieved",
+            f"{part_l_capacity_progress_pct:,.0f}<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>%</span>",
+        )
+
     with editor_summary_cols[2]:
-        render_summary_card("Valid panels", f"{editor_metrics['valid_panels']}")
+        render_summary_card("Panels fitted", f"{editor_metrics['valid_panels']}")
+
     with editor_summary_cols[3]:
         render_summary_card(
             "Blocked / invalid panels",
@@ -2965,25 +3012,26 @@ with st.container(border=True):
 
     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
-    editor_comparison_fig = build_comparison_chart(
-        required_generation_kwh=part_l_required_generation_kwh,
-        actual_generation_kwh=editor_metrics["valid_generation_kwh"],
-        y_axis_max=comparison_ymax,
+    capacity_progress_fig = build_part_l_capacity_progress_chart(
+        required_kwp=part_l_required_kwp,
+        actual_kwp=editor_metrics["valid_kwp"],
     )
+
     st.plotly_chart(
-        editor_comparison_fig,
+        capacity_progress_fig,
         theme=None,
         width="stretch",
-        key="section2_editor_comparison_chart",
+        key="part_l_capacity_progress_chart",
     )
 
 # -----------------------------------------------------------------------------
 # PySAM forecast
 # -----------------------------------------------------------------------------
-render_section_title("pysam_forecast", "PySAM forecast")
+render_section_title("pysam_forecast", "Photovoltaic array energy generation")
 with st.container(border=True):
     st.caption(
-        "This section is secondary. It reuses the arrays defined above and does not affect the Part L calculations."
+        "This section estimates annual electricity generation in kWh using PySAM PVWatts and a selected EPW weather file. "
+        "It is separate from the Part L photovoltaic target check above, which is based on array capacity in kWp."
     )
 
     epw_lookup = get_available_epw_files(EPW_DIRECTORY)
@@ -2991,11 +3039,11 @@ with st.container(border=True):
 
     pysam_input_cols = st.columns(2)
     with pysam_input_cols[0]:
-        epw_label = st.selectbox("PV yield weather file (EPW)", epw_labels, index=0)
+        epw_label = st.selectbox("Weather file for energy generation estimate (EPW)", epw_labels, index=0)
     with pysam_input_cols[1]:
         st.text_input(
             "Array definitions source",
-            value="Inherited from Building PV layout",
+            value="Inherited from Photovoltaic array layout",
             disabled=True,
         )
 
@@ -3106,85 +3154,81 @@ display_panel_counts_for_planes = get_plane_displayed_panel_counts(
 )
 
 user_inputs_rows = [
-    ("Part L target", "House form", house_form),
-    ("Part L target", "Ground floor area method", gfa_input_mode),
-    ("Part L target", "Ground floor area", f"{ground_floor_area_m2:,.2f} m²"),
-    ("Part L target", "Ground floor area source", gfa_source_text),
-    ("Part L target", "SAP compliance region", sap_compliance_region),
-    ("Building PV layout", "Roof type", actual_roof_form),
-    ("Building PV layout", "Length along ridge / whole roof length in plan", f"{plan_length_along_ridge_m:,.2f} m"),
-    ("Building PV layout", "Ridge-to-eaves / whole roof width in plan", f"{plan_length_ridge_to_eaves_m:,.2f} m"),
-    ("Building PV layout", "Roof reduction method", offset_mode_section_2),
+    ("Part L photovoltaic target", "House form", house_form),
+    ("Part L photovoltaic target", "Ground floor area method", gfa_input_mode),
+    ("Part L photovoltaic target", "Ground floor area", f"{ground_floor_area_m2:,.2f} m²"),
+    ("Part L photovoltaic target", "Ground floor area source", gfa_source_text),
+    ("Part L photovoltaic target", "SAP compliance region", sap_compliance_region),
+    ("Photovoltaic array layout", "Roof type", actual_roof_form),
+    ("Photovoltaic array layout", "Length along ridge / whole roof length in plan", f"{plan_length_along_ridge_m:,.2f} m"),
+    ("Photovoltaic array layout", "Ridge-to-eaves / whole roof width in plan", f"{plan_length_ridge_to_eaves_m:,.2f} m"),
+    ("Photovoltaic array layout", "Roof reduction method", offset_mode_section_2),
 ]
 
 if actual_roof_form == "Flat":
-    user_inputs_rows.append(("Building PV layout", "Flat panel pitch above horizontal", f"{flat_panel_pitch_deg:.0f}°"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Flat panel pitch above horizontal", f"{flat_panel_pitch_deg:.0f}°"))
 else:
-    user_inputs_rows.append(("Building PV layout", "Roof plane azimuth", f"{mono_or_duo_azimuth_deg:.0f}°"))
-    user_inputs_rows.append(("Building PV layout", "Roof pitch", f"{mono_or_duo_pitch_deg:.0f}°"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Roof plane azimuth", f"{mono_or_duo_azimuth_deg:.0f}°"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Roof pitch", f"{mono_or_duo_pitch_deg:.0f}°"))
 
 if offset_mode_section_2 == "Simple perimeter margin":
-    user_inputs_rows.append(("Building PV layout", "Perimeter margin around PV zone", f"{perimeter_margin_m:.2f} m"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Perimeter margin around PV zone", f"{perimeter_margin_m:.2f} m"))
 else:
-    user_inputs_rows.append(("Building PV layout", "Ridge offset", f"{ridge_offset_m:.2f} m"))
-    user_inputs_rows.append(("Building PV layout", "Roof edge offset", f"{edge_offset_m:.2f} m"))
-    user_inputs_rows.append(("Building PV layout", "Party wall offset", f"{party_wall_offset_m:.2f} m"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Ridge offset", f"{ridge_offset_m:.2f} m"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Roof edge offset", f"{edge_offset_m:.2f} m"))
+    user_inputs_rows.append(("Photovoltaic array layout", "Party wall offset", f"{party_wall_offset_m:.2f} m"))
 
 user_inputs_rows.extend(
     [
-        ("Building PV layout", "Module width", f"{module_width_m * 1000:.0f} mm"),
-        ("Building PV layout", "Module length", f"{module_length_m * 1000:.0f} mm"),
-        ("Building PV layout", "Module efficiency", f"{module_efficiency_pct:,.1f} %"),
-        ("Building PV layout", "Mount orientation", module_mount_orientation),
-        ("Building PV layout", "Installed panel count", f"{installed_panel_count}"),
-        ("PySAM forecast", "Selected EPW", epw_label),
+        ("Photovoltaic array layout", "Module width", f"{module_width_m * 1000:.0f} mm"),
+        ("Photovoltaic array layout", "Module length", f"{module_length_m * 1000:.0f} mm"),
+        ("Photovoltaic array layout", "Module efficiency", f"{module_efficiency_pct:,.1f} %"),
+        ("Photovoltaic array layout", "Mount orientation", module_mount_orientation),
+        ("Photovoltaic array layout", "Installed panel count", f"{installed_panel_count}"),
+        ("Photovoltaic array energy generation", "Selected EPW", epw_label),
     ]
 )
 
 calculation_assumption_rows = [
-    ("Part L target", "Required PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
-    ("Part L target", "Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
-    ("Part L target", "SAP annual generation basis", "Placeholder annual yields in code"),
-    ("Part L target", "Standardised module width", f"{STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
-    ("Part L target", "Standardised module length", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} mm"),
-    ("Part L target", "Standardised module efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
-    ("Building PV layout", "Roof planes used", f"{len(roof_planes)}"),
-    ("Building PV layout", "Total gross roof area", f"{total_gross_roof_area_m2:,.2f} m²"),
-    ("Building PV layout", "Other reduction area from margins / offsets", f"{other_reduction_area_m2:,.2f} m²"),
-    ("Building PV layout", "Usable roof area for PV", f"{usable_available_pv_area_m2:,.2f} m²"),
-    ("Building PV layout", "Derived module power", f"{module_power_wp:,.0f} Wp"),
-    ("Building PV layout", "Maximum feasible panel count", f"{max_feasible_panels}"),
-    ("Building PV layout", "Actual building annual generation", f"{actual_building_generation_kwh:,.0f} kWh/a"),
-    ("Building PV layout", "Actual building kWp", f"{actual_building_kwp:,.2f} kWp"),
-    ("Building PV layout", "Generation check against Part L requirement", actual_generation_status),
-    ("Building PV layout", "kWp check against Part L requirement", actual_kwp_status),
-    ("Building PV layout", "Panel count check against Part L requirement", actual_panel_status),
-    ("Building PV layout", "Editor valid annual generation", f"{editor_metrics['valid_generation_kwh']:,.0f} kWh/a"),
-    ("Building PV layout", "Editor valid kWp", f"{editor_metrics['valid_kwp']:,.2f} kWp"),
-    ("Building PV layout", "Editor valid panels", f"{editor_metrics['valid_panels']}"),
-    ("Building PV layout", "Editor blocked panels", f"{editor_metrics['blocked_panels']}"),
-    ("Building PV layout", "Editor invalid panels", f"{editor_metrics['invalid_panels']}"),
-    ("Building PV layout", "Editor generation check against Part L requirement", editor_generation_status),
-    ("Building PV layout", "Editor kWp check against Part L requirement", editor_kwp_status),
-    ("Building PV layout", "Editor panel count check against Part L requirement", editor_panel_status),
-    ("Building PV layout", "Editor movement step default", f"{OBSTACLE_NUDGE_STEP_DEFAULT:.2f} m"),
-    ("PySAM forecast", "PySAM availability", "Installed" if pvwatts is not None else "Not installed"),
-    ("PySAM forecast", "System losses", f"{PYSAM_SYSTEM_LOSSES_PCT:.1f} %"),
-    ("PySAM forecast", "DC/AC ratio", f"{PYSAM_DC_AC_RATIO:.2f}"),
-    ("PySAM forecast", "Array type", "Fixed roof mount"),
-    ("PySAM forecast", "Module type", "Standard"),
-    ("PySAM forecast", "Ground coverage ratio", f"{PYSAM_GCR:.2f}"),
+    ("Part L photovoltaic target", "Required PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+    ("Part L photovoltaic target", "Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
+    ("Part L photovoltaic target", "SAP annual generation basis", "Placeholder annual yields in code"),
+    ("Part L photovoltaic target", "Standardised module width", f"{STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
+    ("Part L photovoltaic target", "Standardised module length", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} mm"),
+    ("Part L photovoltaic target", "Standardised module efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
+    ("Photovoltaic array layout", "Roof planes used", f"{len(roof_planes)}"),
+    ("Photovoltaic array layout", "Total gross roof area", f"{total_gross_roof_area_m2:,.2f} m²"),
+    ("Photovoltaic array layout", "Other reduction area from margins / offsets", f"{other_reduction_area_m2:,.2f} m²"),
+    ("Photovoltaic array layout", "Usable roof area for PV", f"{usable_available_pv_area_m2:,.2f} m²"),
+    ("Photovoltaic array layout", "Derived module power", f"{module_power_wp:,.0f} Wp"),
+    ("Photovoltaic array layout", "Maximum feasible panel count", f"{max_feasible_panels}"),
+    ("Photovoltaic array layout", "Actual building kWp", f"{actual_building_kwp:,.2f} kWp"),
+    ("Photovoltaic array layout", "kWp check against Part L requirement", actual_kwp_status),
+    ("Photovoltaic array layout", "Panel count check against Part L requirement", actual_panel_status),
+    ("Photovoltaic array layout", "Editor valid kWp", f"{editor_metrics['valid_kwp']:,.2f} kWp"),
+    ("Photovoltaic array layout", "Editor valid panels", f"{editor_metrics['valid_panels']}"),
+    ("Photovoltaic array layout", "Editor blocked panels", f"{editor_metrics['blocked_panels']}"),
+    ("Photovoltaic array layout", "Editor invalid panels", f"{editor_metrics['invalid_panels']}"),
+    ("Photovoltaic array layout", "Editor kWp check against Part L requirement", editor_kwp_status),
+    ("Photovoltaic array layout", "Editor panel count check against Part L requirement", editor_panel_status),
+    ("Photovoltaic array layout", "Editor movement step default", f"{OBSTACLE_NUDGE_STEP_DEFAULT:.2f} m"),
+    ("Photovoltaic array energy generation", "PySAM availability", "Installed" if pvwatts is not None else "Not installed"),
+    ("Photovoltaic array energy generation", "System losses", f"{PYSAM_SYSTEM_LOSSES_PCT:.1f} %"),
+    ("Photovoltaic array energy generation", "DC/AC ratio", f"{PYSAM_DC_AC_RATIO:.2f}"),
+    ("Photovoltaic array energy generation", "Array type", "Fixed roof mount"),
+    ("Photovoltaic array energy generation", "Module type", "Standard"),
+    ("Photovoltaic array energy generation", "Ground coverage ratio", f"{PYSAM_GCR:.2f}"),
 ]
 
 if pysam_result is not None:
     calculation_assumption_rows.extend(
         [
-            ("PySAM forecast", "Total system capacity used", f"{actual_building_kwp:,.2f} kWp"),
-            ("PySAM forecast", "Annual AC generation", f"{pysam_result['annual_ac_kwh']:,.0f} kWh/a"),
+            ("Photovoltaic array energy generation", "Total system capacity used", f"{actual_building_kwp:,.2f} kWp"),
+            ("Photovoltaic array energy generation", "Annual AC generation", f"{pysam_result['annual_ac_kwh']:,.0f} kWh/a"),
         ]
     )
 else:
-    calculation_assumption_rows.append(("PySAM forecast", "Run status", pysam_message or "Annual generation not available."))
+    calculation_assumption_rows.append(("Photovoltaic array energy generation", "Run status", pysam_message or "Annual generation not available."))
 
 render_section_title("inputs_summary", "Inputs added by user")
 with st.container(border=True):
@@ -3222,21 +3266,21 @@ with st.container(border=True):
         """
 This tool is split into three main sections.
 
-**Part L target** calculates the standardised Part L reference requirement from ground floor area and outputs required annual generation, required kWp and required panel count using fixed standardised module assumptions.
+**Part L photovoltaic target** calculates the target photovoltaic array capacity from ground floor area, using the Part L 2026 assumption that PV capacity is based on 40% of ground floor area at 0.22 kWp/m².
 
-**Building PV layout** uses dimension-based roof planes:
+**Photovoltaic array layout** uses dimension-based roof planes:
 - **Flat**: one rectangular roof in plan with user-defined panel pitch above horizontal.
 - **Mono-pitch**: one sloping plane derived from plan dimensions and roof pitch.
 - **Duo-pitch**: two identical sloping planes, with the second rotated by 180°.
 
-The roof editor works in two stages:
+The array layout editor works in two stages:
 - obstacles can be added first, but this step is optional;
 - PV rectangles are then defined within the usable packing area;
 - panels are regenerated automatically within those PV rectangles;
 - movement and resizing are handled through native Streamlit controls;
 - panel validity is checked against the packing area, obstacle intersections, and panel overlap.
 
-**PySAM forecast** reuses the arrays from the building section and applies PySAM PVWatts using a selected EPW file. It does not affect the Part L-side calculation.
+**Photovoltaic array energy generation** reuses the arrays from the layout section and applies PySAM PVWatts using a selected EPW file. It reports estimated generation in kWh/year, but does not affect the Part L capacity target check.
 """
     )
 
@@ -3252,6 +3296,7 @@ with st.container(border=True):
 - PV rectangles are rectangular only and do not yet support polygon drawing.
 - Panels are regenerated from PV rectangles rather than dragged individually.
 - The editor uses native Streamlit controls for movement and resizing.
+- PySAM generation is deliberately separated from the Part L photovoltaic target check.
 - PySAM uses locally stored EPW files in `resources/epw/`.
 """
     )
