@@ -1,4 +1,4 @@
-#TODO flat roof row spacing, postcode-level SAP region mapping, hipped/asymmetric roofs and more detailed module sizing checks
+#TODO Graph is not very good, flat roof row spacing, postcode-level SAP region mapping, hipped/asymmetric roofs and more detailed module sizing checks
 
 import math
 import json
@@ -3093,6 +3093,20 @@ with header_right:
         )
 
 # -----------------------------------------------------------------------------
+# Public-facing introduction
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+Roof-mounted solar PV is expected to play an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
+This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under the emerging Part L 2026 approach.
+
+The tool is intended as a simple guide rather than a substitute for full compliance modelling. Please carry out your own checks and let us know if anything looks inconsistent, so that we can review and improve the tool.
+
+If you have questions about Part L 2026, SAP 10.3 or the Home Energy Model (HEM), contact Etude at london@etude.co.uk. We can help assess how your design is likely to perform, including energy demand, energy use and renewable energy generation.
+"""
+)
+
+# -----------------------------------------------------------------------------
 # Method information
 # -----------------------------------------------------------------------------
 with st.expander("Method summary", expanded=False):
@@ -3137,7 +3151,7 @@ The generation result is reported separately in kWh/year.
 with st.expander("Current limits", expanded=False):
     st.markdown(
         """
-- The Part L target basis should be checked against the final approved Part L 2026 / SAP methodology when published.
+- The Part L target basis is a working assumption and should be checked against the final approved Part L 2026 / SAP methodology when published.
 - The SAP / weather regions are broad app-level regions and are not yet postcode-district precise.
 - The Appendix U implementation uses representative SAP climate regions rather than a full postcode-to-SAP-region lookup.
 - The roof fit still uses simplified roof reductions rather than a full geometric roof model.
@@ -3238,7 +3252,7 @@ with st.container(border=True):
 render_section_title("part_l_target", "Part L photovoltaic target")
 with st.container(border=True):
     st.caption(
-        "Indicative photovoltaic capacity target based on ground floor area and the assumed Part L 2026 target basis."
+        "Indicative photovoltaic array capacity target based on ground floor area and the current working Part L 2026 target basis."
     )
 
     part_l_required_kwp = (
