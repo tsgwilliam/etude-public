@@ -493,6 +493,14 @@ def get_orientation_label_from_azimuth(azimuth_deg: float) -> str:
     )
     return closest_label
 
+def map_array_layout_type_to_roof_form(array_layout_type: str) -> str:
+    if array_layout_type == "Single roof plane":
+        return "Mono-pitch"
+    if array_layout_type == "Dual roof plane":
+        return "Duo-pitch"
+    if array_layout_type == "Dual-tilt flat roof":
+        return "Flat"
+    return "Mono-pitch"
 
 def get_shading_label_from_factor(shading_factor: float) -> str:
     shading_factor = float(shading_factor)
@@ -3231,10 +3239,10 @@ with header_right:
 # -----------------------------------------------------------------------------
 st.markdown(
     """
-Roof-mounted solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
-This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, including a simplified adjustment for array orientation, pitch and shading.
+Solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
+This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, using ground floor area and a simplified adjustment for array orientation, pitch / tilt and shading.
 
-The tool is intended as a simple guide rather than a substitute for full compliance modelling. Please carry out your own checks and let us know if anything looks inconsistent, so that we can review and improve the tool.
+The tool is intended as a simple guide rather than a substitute for full compliance modelling. The array layout section provides a simplified early-stage capacity check; it is not a detailed PV design tool. Please carry out your own checks and let us know if anything looks inconsistent, so that we can review and improve the tool.
 
 If you have questions about Part L 2026, SAP 10.3 or the Home Energy Model (HEM), contact Etude at london@etude.co.uk. We can help assess how your design is likely to perform, including energy demand, energy use and renewable energy generation.
 """
@@ -3248,7 +3256,7 @@ with st.expander("Method summary", expanded=False):
         """
 This tool is split into four main sections.
 
-**Dwelling inputs** captures the house form, roof type and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
+**Dwelling inputs** captures the house form, array layout type and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
 
 **Part L photovoltaic target** calculates an indicative target photovoltaic capacity from ground floor area and one representative PV assumption: orientation, panel pitch / tilt and shading. The base target is based on 40% of ground floor area at 0.22 kWp/m², then adjusted using the selected orientation, pitch / tilt and shading assumptions.
 
@@ -3256,8 +3264,14 @@ The Part L target check is based on installed photovoltaic capacity in kWp compa
 
 **Photovoltaic array layout** creates the proposed installed PV system that is compared against the target. Two input routes are available:
 
-- **Visual roof layout**: uses simplified roof geometry, array zones and optional obstacles to fit panels.
+- **Visual roof layout**: uses simplified array layout geometry, array zones and optional obstacles to fit panels.
 - **Manual array input**: allows one or more installed arrays to be entered directly by capacity, orientation, pitch / tilt and shading.
+
+The visual layout route uses three simplified array layout types:
+
+- **Single roof plane**: one sloping PV plane. Use this for mono-pitch roofs, or for duo-pitch roofs where PV is only proposed on the better-oriented roof plane.
+- **Dual roof plane**: two identical sloping PV planes, with the second rotated by 180°. In V1, panels are split across both planes rather than automatically filling the better-oriented plane first.
+- **Dual-tilt flat roof**: one flat roof area with panels treated as a simplified dual-tilt arrangement.
 
 This tool follows a simplified array-based approach: the Part L target is calculated at dwelling level, then the proposed PV system is entered as one or more arrays with their own capacity, orientation, pitch / tilt and shading. This avoids asking users to allocate a theoretical PV area across roof planes.
 
@@ -3278,7 +3292,8 @@ with st.expander("Current limits", expanded=False):
 - The SAP / weather regions are broad app-level regions and are not yet postcode-district precise.
 - The Appendix U implementation uses representative SAP climate regions rather than a full postcode-to-SAP-region lookup.
 - The roof fit still uses simplified roof reductions rather than a full geometric roof model.
-- Flat roofs use a single roof plane in the editor. For generation, flat-roof panels are currently treated as a simplified 50/50 dual-tilt arrangement.
+- Dual roof plane mode splits panels across both planes. It does not currently prioritise the better-oriented plane before using the second plane.
+- Dual-tilt flat roof mode uses a single roof area in the editor. For generation, flat-roof panels are currently treated as a simplified 50/50 dual-tilt arrangement.
 - Flat-roof row spacing still needs to be developed properly.
 - Hipped roofs are not included in this simplified method.
 - Array zones are rectangular only and do not yet support polygon drawing.
@@ -3296,6 +3311,8 @@ with st.expander("Terminology", expanded=False):
 - **PV panel**: a single photovoltaic module/panel.
 - **kWp**: peak DC capacity of the PV array under standard test conditions.
 - **Orientation / azimuth**: direction the PV array faces.
+- **Single roof plane**: one sloping PV plane used for the proposed PV array.
+- **Dual roof plane**: two opposed sloping PV planes, with the second plane rotated by 180° from the first.
 - **Dual-tilt**: a flat-roof mounting arrangement with panels split between two opposed low-pitch directions.
 - **EPW**: EnergyPlus Weather file used for hourly weather-based generation modelling.
 - **PySAM PVWatts**: a photovoltaic generation model used to estimate annual and monthly PV output.
@@ -3320,12 +3337,13 @@ with st.container(border=True):
         )
 
     with dwelling_top[1]:
-        actual_roof_form = st.selectbox(
-            "Roof type",
-            ["Mono-pitch", "Duo-pitch", "Flat"],
-            index=1,
-            key="actual_roof_form",
+        array_layout_type = st.selectbox(
+            "Array layout type",
+            ["Single roof plane", "Dual roof plane", "Dual-tilt flat roof"],
+            index=0,
+            key="array_layout_type",
         )
+        actual_roof_form = map_array_layout_type_to_roof_form(array_layout_type)
 
     with dwelling_top[2]:
         gfa_input_mode = st.selectbox(
@@ -3608,10 +3626,18 @@ with st.container(border=True):
 
     if array_input_mode == "Visual roof layout":
         helper_text = {
-            "Flat": "Flat roof uses one whole rectangular roof in plan.",
-            "Mono-pitch": "Mono-pitch uses one rectangular roof slope. It can also be used for a duo-pitch roof where only one slope receives PV.",
-            "Duo-pitch": "Duo-pitch duplicates one entered roof plane and rotates the second by 180°.",
-        }[actual_roof_form]
+            "Single roof plane": (
+                "Use this for a mono-pitch roof, or for a duo-pitch roof where PV is only proposed on the better-oriented roof plane."
+            ),
+            "Dual roof plane": (
+                "Use this only where PV is intended on both roof planes. The current V1 layout splits panels across both planes rather than filling the better-oriented plane first."
+            ),
+            "Dual-tilt flat roof": (
+                "Use this for a simplified flat-roof dual-tilt arrangement."
+            ),
+        }[array_layout_type]
+
+        st.info(f"Array layout type: {array_layout_type}. {helper_text}")
 
         st.info(f"Roof type inherited from dwelling inputs: {actual_roof_form}. {helper_text}")
 
@@ -3685,7 +3711,7 @@ with st.container(border=True):
                 )
             with roof_geom_cols[2]:
                 roof_orientation_label = st.selectbox(
-                    "Roof plane orientation",
+                    "Primary array plane orientation",
                     list(SAP_ORIENTATION_OPTIONS.keys()),
                     index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
                     key="pitched_orientation",
