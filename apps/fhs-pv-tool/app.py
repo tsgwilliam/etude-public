@@ -453,6 +453,26 @@ SAP_TILT_OPTIONS_DEG = [
     90,
 ]
 
+FLAT_PANEL_PITCH_OPTIONS_DEG = [
+    5,
+    10,
+    12,
+    15,
+    20,
+    30,
+]
+
+
+def map_actual_pitch_to_sap_pitch(actual_pitch_deg: float) -> int:
+    return min(
+        SAP_TILT_OPTIONS_DEG,
+        key=lambda sap_pitch: (
+            abs(float(sap_pitch) - float(actual_pitch_deg)),
+            -float(sap_pitch),
+        ),
+    )
+
+
 SAP_SHADING_OPTIONS = {
     "None or very little": 1.00,
     "Modest": 0.80,
@@ -594,7 +614,7 @@ def build_array_summary_rows(pv_arrays: list[PvArray]) -> list[dict]:
                 "Capacity (kWp)": f"{array.capacity_kwp:.2f}",
                 "Orientation": get_orientation_label_from_azimuth(array.azimuth_deg),
                 "Azimuth (deg)": f"{array.azimuth_deg:.0f}",
-                "Tilt (deg)": f"{array.tilt_deg:.0f}",
+                "Panel pitch / tilt (deg)": f"{array.tilt_deg:.0f}",
                 "Shading": get_shading_label_from_factor(array.shading_factor),
                 "Shading factor": f"{array.shading_factor:.2f}",
                 "Panel count": "" if array.panel_count is None else f"{array.panel_count}",
@@ -714,6 +734,12 @@ SAP_APPENDIX_U_SOLAR_DECLINATION_DEG = [
 # These are not postcode-district precise. They are suitable for this simplified tool,
 # but a compliance implementation should use SAP postcode-region mapping / PCDB data.
 SAP_APPENDIX_U_REGION_DATA = {
+    "UK average": {
+        "sap_region": 0,
+        "sap_region_name": "Approximate UK average",
+        "latitude_deg": 53.0,
+        "horizontal_irradiance_w_m2": [31, 57, 102, 162, 200, 218, 202, 172, 127, 73, 39, 24],
+    },
     "England - London / South East": {
         "sap_region": 1,
         "sap_region_name": "Thames",
@@ -1062,7 +1088,7 @@ def build_sap_appendix_u_array_rows(array_results: list[dict]) -> list[dict]:
                 "Panel count": "" if result["panel_count"] is None else f"{result['panel_count']}",
                 "Azimuth (deg)": f"{result['azimuth_deg']:.0f}",
                 "Appendix U orientation": result["orientation_label"],
-                "Tilt entered (deg)": f"{result['tilt_deg']:.0f}",
+                "Panel pitch / tilt entered (deg)": f"{result['tilt_deg']:.0f}",
                 "SAP region": f"{result['sap_region']} - {result['sap_region_name']}",
                 "Representative latitude": f"{result['latitude_deg']:.1f}°N",
                 "Annual surface irradiation (kWh/m²)": f"{result['annual_surface_irradiation_kwh_m2']:.0f}",
@@ -1073,6 +1099,147 @@ def build_sap_appendix_u_array_rows(array_results: list[dict]) -> list[dict]:
         )
 
     return rows
+
+# -----------------------------------------------------------------------------
+# Part L photovoltaic target adjustment helpers
+# -----------------------------------------------------------------------------
+PART_L_TARGET_REFERENCE_REGION = "UK average"
+PART_L_TARGET_REFERENCE_ORIENTATION = "South"
+PART_L_TARGET_REFERENCE_TILT_DEG = 30.0
+PART_L_TARGET_REFERENCE_SHADING_FACTOR = 1.0
+PART_L_TARGET_MIN_EFFECTIVE_FACTOR = 0.05
+
+
+def get_part_l_target_reference_irradiation_kwh_m2(
+    region: str = PART_L_TARGET_REFERENCE_REGION,
+) -> float:
+    monthly_reference_surface_irradiance = calculate_appendix_u_monthly_surface_irradiance(
+        region=region,
+        orientation_label=PART_L_TARGET_REFERENCE_ORIENTATION,
+        tilt_deg=PART_L_TARGET_REFERENCE_TILT_DEG,
+    )
+    return calculate_appendix_u_annual_surface_irradiation_kwh_m2(
+        monthly_reference_surface_irradiance
+    )
+
+def calculate_part_l_target_plane_factor(
+    orientation_label: str,
+    tilt_deg: float,
+    shading_label: str,
+    region: str = PART_L_TARGET_REFERENCE_REGION,
+) -> dict:
+    monthly_surface_irradiance = calculate_appendix_u_monthly_surface_irradiance(
+        region=region,
+        orientation_label=orientation_label,
+        tilt_deg=float(tilt_deg),
+    )
+    annual_surface_irradiation = calculate_appendix_u_annual_surface_irradiation_kwh_m2(
+        monthly_surface_irradiance
+    )
+
+    reference_irradiation = get_part_l_target_reference_irradiation_kwh_m2(region)
+    irradiation_factor = (
+        annual_surface_irradiation / reference_irradiation
+        if reference_irradiation > 0
+        else 1.0
+    )
+
+    shading_factor = SAP_SHADING_OPTIONS.get(shading_label, 1.0)
+    effective_factor = max(
+        irradiation_factor * shading_factor,
+        PART_L_TARGET_MIN_EFFECTIVE_FACTOR,
+    )
+
+    return {
+        "orientation_label": orientation_label,
+        "tilt_deg": float(tilt_deg),
+        "shading_label": shading_label,
+        "annual_surface_irradiation_kwh_m2": annual_surface_irradiation,
+        "reference_surface_irradiation_kwh_m2": reference_irradiation,
+        "irradiation_factor": irradiation_factor,
+        "shading_factor": shading_factor,
+        "effective_factor": effective_factor,
+    }
+
+
+def calculate_part_l_adjusted_target(
+    ground_floor_area_m2: float,
+    target_plane_inputs: list[dict],
+    region: str = PART_L_TARGET_REFERENCE_REGION,
+) -> dict:
+    nominal_required_kwp = (
+        ground_floor_area_m2
+        * FHS_REQUIRED_AREA_FRACTION
+        * STANDARD_PANEL_EFFICIENCY_KWP_PER_M2
+    )
+
+    reference_pv_area_m2 = ground_floor_area_m2 * FHS_REQUIRED_AREA_FRACTION
+
+    share_total_pct = sum(float(plane["share_pct"]) for plane in target_plane_inputs)
+
+    if share_total_pct <= 0:
+        normalised_planes = []
+    else:
+        normalised_planes = [
+            {
+                **plane,
+                "normalised_share_fraction": float(plane["share_pct"]) / share_total_pct,
+            }
+            for plane in target_plane_inputs
+        ]
+
+    plane_rows = []
+    adjusted_required_kwp = 0.0
+    weighted_effective_factor = 0.0
+
+    for idx, plane in enumerate(normalised_planes, start=1):
+        share_fraction = float(plane["normalised_share_fraction"])
+        plane_nominal_kwp = nominal_required_kwp * share_fraction
+        plane_reference_area_m2 = reference_pv_area_m2 * share_fraction
+
+        factor_result = calculate_part_l_target_plane_factor(
+            orientation_label=plane["orientation_label"],
+            tilt_deg=float(plane["tilt_deg"]),
+            shading_label=plane["shading_label"],
+            region=region,
+        )
+
+        effective_factor = factor_result["effective_factor"]
+        plane_adjusted_kwp = (
+            plane_nominal_kwp / effective_factor
+            if effective_factor > 0
+            else plane_nominal_kwp
+        )
+
+        adjusted_required_kwp += plane_adjusted_kwp
+        weighted_effective_factor += share_fraction * effective_factor
+
+        plane_rows.append(
+            {
+                "Plane": f"Target PV plane {idx}",
+                "Area share (%)": f"{share_fraction * 100.0:.1f}",
+                "Reference PV area (m²)": f"{plane_reference_area_m2:.2f}",
+                "Orientation": plane["orientation_label"],
+                "Panel pitch / tilt (deg)": f"{float(plane['tilt_deg']):.0f}",
+                "Shading": plane["shading_label"],
+                "Annual surface irradiation (kWh/m²)": f"{factor_result['annual_surface_irradiation_kwh_m2']:.0f}",
+                "Irradiation factor": f"{factor_result['irradiation_factor']:.3f}",
+                "Shading factor": f"{factor_result['shading_factor']:.2f}",
+                "Combined target factor": f"{effective_factor:.3f}",
+                "Nominal target capacity (kWp)": f"{plane_nominal_kwp:.2f}",
+                "Adjusted target capacity (kWp)": f"{plane_adjusted_kwp:.2f}",
+            }
+        )
+
+    return {
+        "region": region,
+        "reference_pv_area_m2": reference_pv_area_m2,
+        "nominal_required_kwp": nominal_required_kwp,
+        "adjusted_required_kwp": adjusted_required_kwp,
+        "weighted_effective_factor": weighted_effective_factor,
+        "share_total_pct": share_total_pct,
+        "plane_rows": plane_rows,
+    }
 
 def allocate_integer_counts(total_count: int, share_fractions: list[float]) -> list[int]:
     if total_count <= 0:
@@ -1098,17 +1265,19 @@ def build_part_l_capacity_progress_chart(required_kwp: float, actual_kwp: float)
     achieved_pct_capped = min(achieved_pct, 100.0)
     shortfall_pct = max(100.0 - achieved_pct_capped, 0.0)
 
+    x_label = "Installed PV capacity vs adjusted Part L target"
+
     fig = go.Figure()
 
     fig.add_bar(
-        x=["Part L photovoltaic target"],
+        x=[x_label],
         y=[achieved_pct_capped],
         name="Achieved",
         marker_color="#17C497",
     )
 
     fig.add_bar(
-        x=["Part L photovoltaic target"],
+        x=[x_label],
         y=[shortfall_pct],
         name="Shortfall",
         marker_color="#E6E6E6",
@@ -1118,7 +1287,7 @@ def build_part_l_capacity_progress_chart(required_kwp: float, actual_kwp: float)
         barmode="stack",
         height=300,
         margin=dict(l=60, r=20, t=24, b=40),
-        yaxis_title="% of target kWp",
+        yaxis_title="% of adjusted target kWp",
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(color="#333333"),
@@ -1501,7 +1670,7 @@ def build_roof_geometry(
         azimuth_1 = float(azimuth_deg)
         azimuth_2 = (azimuth_1 + 180.0) % 360.0
         plane_azimuths = [azimuth_1, azimuth_2]
-        plane_names = ["Roof plane 1", "Roof plane 2"]
+        plane_names = ["Roof slope 1", "Roof slope 2"]
 
     for idx, (name, plane_azimuth) in enumerate(zip(plane_names, plane_azimuths), start=1):
         planes.append(
@@ -1545,13 +1714,13 @@ def build_actual_arrays_for_generation(
 
         return [
             ArrayDefinition(
-                name="Roof plane 1",
+                name="Roof slope 1",
                 azimuth_deg=azimuth_1,
                 tilt_deg=float(mono_or_duo_pitch_deg),
                 area_share_fraction=0.5,
             ),
             ArrayDefinition(
-                name="Roof plane 2",
+                name="Roof slope 2",
                 azimuth_deg=azimuth_2,
                 tilt_deg=float(mono_or_duo_pitch_deg),
                 area_share_fraction=0.5,
@@ -2379,7 +2548,7 @@ def build_visual_obstacle_editor(editor_state: dict) -> dict:
                 max_value=1.0,
             )
             move_step = st.number_input(
-                "Movement step (m)",
+                "Nudge distance per click (m)",
                 min_value=0.01,
                 max_value=1.0,
                 value=OBSTACLE_NUDGE_STEP_DEFAULT,
@@ -2396,7 +2565,7 @@ def build_visual_obstacle_editor(editor_state: dict) -> dict:
             max_value=1.0,
         )
         move_step = st.number_input(
-            "Movement step (m)",
+            "Nudge distance per click (m)",
             min_value=0.01,
             max_value=1.0,
             value=OBSTACLE_NUDGE_STEP_DEFAULT,
@@ -3097,8 +3266,8 @@ with header_right:
 # -----------------------------------------------------------------------------
 st.markdown(
     """
-Roof-mounted solar PV is expected to play an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
-This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under the emerging Part L 2026 approach.
+Roof-mounted solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
+This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, including a simplified adjustment for array orientation, pitch and shading.
 
 The tool is intended as a simple guide rather than a substitute for full compliance modelling. Please carry out your own checks and let us know if anything looks inconsistent, so that we can review and improve the tool.
 
@@ -3116,9 +3285,9 @@ This tool is split into four main sections.
 
 **Dwelling inputs** captures the house form and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
 
-**Part L photovoltaic target** calculates the target photovoltaic array capacity from ground floor area. The current target assumption is that photovoltaic capacity is based on 40% of ground floor area at 0.22 kWp/m².
+**Part L photovoltaic target** calculates an indicative photovoltaic array capacity target from ground floor area. The nominal target is based on 40% of ground floor area at 0.22 kWp/m², then adjusted using the target array orientation, panel pitch / tilt and shading inputs.
 
-The Part L target check is based on installed photovoltaic capacity in kWp. Annual generation is estimated separately and is not used for the Part L capacity target check.
+The Part L target check is based on installed photovoltaic capacity in kWp compared against this adjusted target. Annual generation is estimated separately and is not used for the Part L capacity target check.
 
 **Photovoltaic array layout** creates the array capacity that is passed forward to the generation calculation. Two input routes are available:
 
@@ -3151,7 +3320,7 @@ The generation result is reported separately in kWh/year.
 with st.expander("Current limits", expanded=False):
     st.markdown(
         """
-- The Part L target basis is a working assumption and should be checked against the final approved Part L 2026 / SAP methodology when published.
+- The Part L target adjustment is an early simplified implementation using the coded SAP Appendix U-style irradiance assumptions in this tool. It should be checked against the published Part L 2026 / SAP 10.3 methodology before being used for compliance.
 - The SAP / weather regions are broad app-level regions and are not yet postcode-district precise.
 - The Appendix U implementation uses representative SAP climate regions rather than a full postcode-to-SAP-region lookup.
 - The roof fit still uses simplified roof reductions rather than a full geometric roof model.
@@ -3163,15 +3332,28 @@ with st.expander("Current limits", expanded=False):
 - The editor uses native Streamlit controls for movement and resizing.
 - PySAM generation uses locally stored EPW files in `resources/epw/`.
 - SAP Appendix U and PySAM generation are deliberately separated from the Part L photovoltaic capacity target check.
+- Visual roof orientation is entered in degrees for layout flexibility, but SAP Appendix U generation maps this to the nearest SAP orientation band.
+"""
+    )
+with st.expander("Terminology", expanded=False):
+    st.markdown(
+        """
+- **PV panel**: a single photovoltaic module/panel.
+- **kWp**: peak DC capacity of the PV array under standard test conditions.
+- **Orientation / azimuth**: direction the PV array faces.
+- **EPW**: EnergyPlus Weather file used for hourly weather-based generation modelling.
+- **PySAM PVWatts**: a photovoltaic generation model used to estimate annual and monthly PV output.
 """
     )
 
 # -----------------------------------------------------------------------------
 # Dwelling inputs
 # -----------------------------------------------------------------------------
+actual_roof_form = "Duo-pitch"
+
 render_section_title("dwelling_inputs", "Dwelling inputs")
 with st.container(border=True):
-    dwelling_top = st.columns(2)
+    dwelling_top = st.columns(3)
 
     with dwelling_top[0]:
         house_form = st.selectbox(
@@ -3182,9 +3364,17 @@ with st.container(border=True):
         )
 
     with dwelling_top[1]:
+        actual_roof_form = st.selectbox(
+            "Roof type",
+            ["Mono-pitch", "Duo-pitch", "Flat"],
+            index=1,
+            key="actual_roof_form",
+        )
+
+    with dwelling_top[2]:
         gfa_input_mode = st.selectbox(
             "Ground floor area method",
-            ["Enter explicitly", "Derive from geometry"],
+            ["Enter explicitly", "Derive from external dimensions"],
             index=0,
             key="dwelling_gfa_mode",
         )
@@ -3200,16 +3390,22 @@ with st.container(border=True):
         )
         gfa_source_text = "Entered explicitly"
 
+        st.caption(
+            "Enter the ground floor area measured to the internal face of the external perimeter walls. "
+            "For the Part L PV calculation, this includes certain unheated spaces within dwellings as defined in SAP 10 conventions section 8.05."
+        )
+
     else:
         st.caption(
-            "Derived GFA is a simplified input helper. Use the explicit GFA input where a measured or assessed value is available."
+            "This helper approximates the internally measured ground floor area from simple external dwelling dimensions. "
+            "Use the explicit input where a measured Part L/SAP floor area is available."
         )
 
         gfa_geom_cols = st.columns(3)
 
         with gfa_geom_cols[0]:
             ridge_parallel_width_for_gfa_m = st.slider(
-                "Width parallel to ridge / long side (m)",
+                "External width parallel to ridge / long side (m)",
                 min_value=4.00,
                 max_value=25.00,
                 value=9.00,
@@ -3219,7 +3415,7 @@ with st.container(border=True):
 
         with gfa_geom_cols[1]:
             depth_for_gfa_m = st.slider(
-                "Depth perpendicular to ridge / short side (m)",
+                "External depth perpendicular to ridge / short side (m)",
                 min_value=4.00,
                 max_value=25.00,
                 value=8.00,
@@ -3243,8 +3439,7 @@ with st.container(border=True):
             wall_thickness_m=wall_thickness_m,
             house_form=house_form,
         )
-        gfa_source_text = "Derived from geometry"
-
+        gfa_source_text = "Derived from external dimensions"
 
 # -----------------------------------------------------------------------------
 # Part L target
@@ -3252,14 +3447,170 @@ with st.container(border=True):
 render_section_title("part_l_target", "Part L photovoltaic target")
 with st.container(border=True):
     st.caption(
-        "Indicative photovoltaic array capacity target based on ground floor area and the current working Part L 2026 target basis."
+        "Indicative photovoltaic array capacity target based on ground floor area and the selected PV orientation, pitch and shading assumptions."
     )
 
-    part_l_required_kwp = (
-        ground_floor_area_m2
-        * FHS_REQUIRED_AREA_FRACTION
-        * STANDARD_PANEL_EFFICIENCY_KWP_PER_M2
+    if actual_roof_form == "Mono-pitch":
+        target_plane_count = 1
+
+        target_cols = st.columns(3)
+
+        with target_cols[0]:
+            target_orientation_label = st.selectbox(
+                "Target plane orientation",
+                list(SAP_ORIENTATION_OPTIONS.keys()),
+                index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
+                key="part_l_target_plane_orientation_1",
+            )
+
+        with target_cols[1]:
+            target_tilt_deg = st.selectbox(
+                "Panel pitch / tilt (deg)",
+                SAP_TILT_OPTIONS_DEG,
+                index=SAP_TILT_OPTIONS_DEG.index(30),
+                key="part_l_target_plane_tilt_1",
+            )
+
+        with target_cols[2]:
+            target_shading_label = st.selectbox(
+                "Shading",
+                list(SAP_SHADING_OPTIONS.keys()),
+                index=0,
+                key="part_l_target_plane_shading_1",
+            )
+
+        target_plane_inputs = [
+            {
+                "share_pct": 100.0,
+                "orientation_label": target_orientation_label,
+                "tilt_deg": float(target_tilt_deg),
+                "shading_label": target_shading_label,
+            }
+        ]
+
+    elif actual_roof_form == "Duo-pitch":
+        target_plane_count = 2
+
+        st.caption(
+            "Adjust the share if the target PV area is not split evenly across the two roof slopes."
+        )
+
+        target_plane_inputs = []
+
+        default_duo_orientations = ["South East", "North West"]
+
+        for idx in range(1, 3):
+            with st.container(border=True):
+                st.markdown(f"**Target PV plane {idx}**")
+
+                target_cols = st.columns([1.0, 1.2, 1.0, 1.2])
+
+                with target_cols[0]:
+                    share_pct = st.number_input(
+                        "Share of target PV area (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=50.0,
+                        step=1.0,
+                        key=f"part_l_target_plane_share_{idx}",
+                    )
+
+                with target_cols[1]:
+                    orientation_label = st.selectbox(
+                        "Orientation",
+                        list(SAP_ORIENTATION_OPTIONS.keys()),
+                        index=list(SAP_ORIENTATION_OPTIONS.keys()).index(default_duo_orientations[idx - 1]),
+                        key=f"part_l_target_plane_orientation_{idx}",
+                    )
+
+                with target_cols[2]:
+                    tilt_deg = st.selectbox(
+                        "Panel pitch / tilt (deg)",
+                        SAP_TILT_OPTIONS_DEG,
+                        index=SAP_TILT_OPTIONS_DEG.index(30),
+                        key=f"part_l_target_plane_tilt_{idx}",
+                    )
+
+                with target_cols[3]:
+                    shading_label = st.selectbox(
+                        "Shading",
+                        list(SAP_SHADING_OPTIONS.keys()),
+                        index=0,
+                        key=f"part_l_target_plane_shading_{idx}",
+                    )
+
+                target_plane_inputs.append(
+                    {
+                        "share_pct": float(share_pct),
+                        "orientation_label": orientation_label,
+                        "tilt_deg": float(tilt_deg),
+                        "shading_label": shading_label,
+                    }
+                )
+
+    else:
+        target_plane_count = 2
+
+        st.caption(
+            "Flat-roof target calculation uses a simplified 50/50 east/west split. "
+            "The physical roof layout is still entered separately below."
+        )
+
+        flat_target_cols = st.columns(2)
+
+        with flat_target_cols[0]:
+            target_flat_panel_pitch_deg = st.selectbox(
+                "Physical panel pitch above horizontal",
+                FLAT_PANEL_PITCH_OPTIONS_DEG,
+                index=FLAT_PANEL_PITCH_OPTIONS_DEG.index(int(DEFAULT_FLAT_PANEL_PITCH_DEG)),
+                format_func=lambda x: f"{x}°",
+                key="part_l_target_flat_panel_pitch",
+            )
+
+            target_flat_sap_pitch_deg = map_actual_pitch_to_sap_pitch(target_flat_panel_pitch_deg)
+
+            st.caption(
+                f"The physical pitch is used to describe the flat-roof layout. "
+                f"For this simplified Part L target adjustment, {target_flat_panel_pitch_deg:.0f}° is mapped to the nearest SAP pitch category: "
+                f"{target_flat_sap_pitch_deg}°."
+            )
+
+        with flat_target_cols[1]:
+            target_flat_shading_label = st.selectbox(
+                "Shading",
+                list(SAP_SHADING_OPTIONS.keys()),
+                index=0,
+                key="part_l_target_flat_shading",
+            )
+
+        target_plane_inputs = [
+            {
+                "share_pct": 50.0,
+                "orientation_label": "East",
+                "tilt_deg": float(target_flat_sap_pitch_deg),
+                "physical_tilt_deg": float(target_flat_panel_pitch_deg),
+                "shading_label": target_flat_shading_label,
+            },
+            {
+                "share_pct": 50.0,
+                "orientation_label": "West",
+                "tilt_deg": float(target_flat_sap_pitch_deg),
+                "physical_tilt_deg": float(target_flat_panel_pitch_deg),
+                "shading_label": target_flat_shading_label,
+            },
+        ]
+
+    target_calculation = calculate_part_l_adjusted_target(
+        ground_floor_area_m2=ground_floor_area_m2,
+        target_plane_inputs=target_plane_inputs,
+        region=PART_L_TARGET_REFERENCE_REGION,
     )
+
+    nominal_part_l_required_kwp = target_calculation["nominal_required_kwp"]
+    part_l_required_kwp = target_calculation["adjusted_required_kwp"]
+    target_share_total_pct = target_calculation["share_total_pct"]
+    target_weighted_effective_factor = target_calculation["weighted_effective_factor"]
+    target_reference_pv_area_m2 = target_calculation["reference_pv_area_m2"]
 
     standardised_module_power_kwp = module_power_kwp_from_inputs(
         length_m=STANDARDISED_MODULE_LENGTH_M,
@@ -3269,33 +3620,55 @@ with st.container(border=True):
 
     part_l_required_panel_count = math.ceil(
         part_l_required_kwp / standardised_module_power_kwp
-    )
+    ) if standardised_module_power_kwp > 0 else 0
+
+    if abs(target_share_total_pct - 100.0) > 0.01:
+        st.warning(
+            f"The target plane shares currently sum to {target_share_total_pct:.1f}%. "
+            "The calculation normalises these shares to 100%, but you should adjust them so the entered values sum to 100%."
+        )
 
     part_l_summary_cols = st.columns(2)
 
     with part_l_summary_cols[0]:
         render_summary_card(
-            "Target photovoltaic array capacity",
+            "Target photovoltaic capacity",
             f"{part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
         )
 
     with part_l_summary_cols[1]:
         render_summary_card(
-            "Equivalent standardised panel count",
+            "Target panel count",
             f"{part_l_required_panel_count:,.0f}",
         )
 
     target_assumption_rows = [
-        ("Required PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+        ("Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+        ("Reference PV area", f"{target_reference_pv_area_m2:.2f} m²"),
         ("Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
-        ("Target capacity formula", "Ground floor area × required PV area fraction × standard panel efficiency density"),
-        ("Standardised module size", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} × {STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
-        ("Standardised module efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
+        ("Nominal target capacity formula", "Ground floor area × reference PV area fraction × standard panel efficiency density"),
+        ("Nominal target capacity", f"{nominal_part_l_required_kwp:,.2f} kWp"),
+        ("Adjustment method", "Nominal target capacity is divided by the weighted orientation / pitch / shading factor"),
+        ("Target reference orientation", PART_L_TARGET_REFERENCE_ORIENTATION),
+        ("Target reference panel pitch / tilt", f"{PART_L_TARGET_REFERENCE_TILT_DEG:.0f}°"),
+        ("Target reference shading factor", f"{PART_L_TARGET_REFERENCE_SHADING_FACTOR:.2f}"),
+        ("Target reference region", PART_L_TARGET_REFERENCE_REGION),
+        ("Minimum effective target factor", f"{PART_L_TARGET_MIN_EFFECTIVE_FACTOR:.2f}"),
+        ("Adjusted target capacity", f"{part_l_required_kwp:,.2f} kWp"),
+        ("Standardised panel size", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} × {STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
+        ("Standardised panel efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
     ]
 
-    with st.expander("Show target assumptions", expanded=False):
+    with st.expander("Show target assumptions and plane adjustment", expanded=False):
         st.dataframe(
             pd.DataFrame(target_assumption_rows, columns=["Assumption", "Value"]),
+            hide_index=True,
+            width="stretch",
+        )
+
+        st.markdown("**Target PV plane adjustment**")
+        st.dataframe(
+            pd.DataFrame(target_calculation["plane_rows"]),
             hide_index=True,
             width="stretch",
         )
@@ -3314,7 +3687,6 @@ with st.container(border=True):
     )
 
     # Defaults used by downstream summary sections.
-    actual_roof_form = "Manual input"
     plan_length_along_ridge_m = 0.0
     plan_length_ridge_to_eaves_m = 0.0
     flat_panel_pitch_deg = float(DEFAULT_FLAT_PANEL_PITCH_DEG)
@@ -3372,24 +3744,13 @@ with st.container(border=True):
     }
 
     if array_input_mode == "Visual roof layout":
-        building_top = st.columns([1.15, 1.0])
-        with building_top[0]:
-            actual_roof_form = st.selectbox(
-                "Roof type",
-                ["Mono-pitch", "Duo-pitch", "Flat"],
-                index=1,
-                key="actual_roof_form",
-            )
-        with building_top[1]:
-            helper_text = {
-                "Flat": "Flat roof uses one whole rectangular roof in plan.",
-                "Mono-pitch": "Mono-pitch uses one rectangular roof plane defined in plan.",
-                "Duo-pitch": "Duo-pitch duplicates one entered roof plane and rotates the second by 180°.",
-            }[actual_roof_form]
-            st.markdown(
-                f"<div style='padding-top:2px; line-height:38px;'>{helper_text}</div>",
-                unsafe_allow_html=True,
-            )
+        helper_text = {
+            "Flat": "Flat roof uses one whole rectangular roof in plan.",
+            "Mono-pitch": "Mono-pitch uses one rectangular roof slope. It can also be used for a duo-pitch roof where only one slope receives PV.",
+            "Duo-pitch": "Duo-pitch duplicates one entered roof plane and rotates the second by 180°.",
+        }[actual_roof_form]
+
+        st.info(f"Roof type inherited from dwelling inputs: {actual_roof_form}. {helper_text}")
 
         st.markdown("**Roof parameters**")
 
@@ -3414,13 +3775,20 @@ with st.container(border=True):
                     key="flat_roof_width",
                 )
             with roof_geom_cols[2]:
-                flat_panel_pitch_deg = st.slider(
-                    "Panel pitch above horizontal (degrees)",
-                    min_value=1,
-                    max_value=45,
-                    value=int(DEFAULT_FLAT_PANEL_PITCH_DEG),
-                    step=1,
+                flat_panel_pitch_deg = st.selectbox(
+                    "Physical panel pitch above horizontal",
+                    FLAT_PANEL_PITCH_OPTIONS_DEG,
+                    index=FLAT_PANEL_PITCH_OPTIONS_DEG.index(int(DEFAULT_FLAT_PANEL_PITCH_DEG)),
+                    format_func=lambda x: f"{x}°",
                     key="flat_panel_pitch",
+                )
+
+                layout_flat_sap_pitch_deg = map_actual_pitch_to_sap_pitch(flat_panel_pitch_deg)
+
+                st.caption(
+                    f"The selected physical pitch is used for the layout geometry. "
+                    f"For SAP-style calculations, {flat_panel_pitch_deg:.0f}° maps to the nearest SAP pitch category: "
+                    f"{layout_flat_sap_pitch_deg}°."
                 )
 
             mono_or_duo_azimuth_deg = None
@@ -3453,14 +3821,14 @@ with st.container(border=True):
                     key="pitched_eaves_length_plan",
                 )
             with roof_geom_cols[2]:
-                mono_or_duo_azimuth_deg = st.slider(
-                    "Roof plane azimuth (degrees, 180 = south)",
-                    min_value=0,
-                    max_value=359,
-                    value=180,
-                    step=1,
-                    key="pitched_azimuth",
+                roof_orientation_label = st.selectbox(
+                    "Roof plane orientation",
+                    list(SAP_ORIENTATION_OPTIONS.keys()),
+                    index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
+                    key="pitched_orientation",
                 )
+                mono_or_duo_azimuth_deg = SAP_ORIENTATION_OPTIONS[roof_orientation_label]
+
             with roof_geom_cols[3]:
                 mono_or_duo_pitch_deg = st.slider(
                     "Roof pitch (degrees)",
@@ -3542,37 +3910,39 @@ with st.container(border=True):
         )
         roof_planes = roof_geometry.planes
 
-        st.markdown("**Module parameters**")
+        st.markdown("**Panel parameters**")
 
         module_cols = st.columns(4)
         with module_cols[0]:
             module_length_m = st.select_slider(
-                "Module length",
+                "Panel length",
                 options=MODULE_LENGTH_OPTIONS_M,
                 value=DEFAULT_MODULE_LENGTH_M,
                 format_func=lambda x: format_module_length_label(x),
                 key="actual_module_length",
             )
+
         with module_cols[1]:
             st.text_input(
-                "Module width",
+                "Panel width",
                 value=f"{FIXED_MODULE_WIDTH_M * 1000:.0f} mm fixed",
                 disabled=True,
                 key="actual_module_width_display",
             )
             module_width_m = FIXED_MODULE_WIDTH_M
+
         with module_cols[2]:
-            module_efficiency_pct = st.slider(
-                "Module efficiency (%)",
-                min_value=MIN_MODULE_EFFICIENCY_PCT,
-                max_value=MAX_MODULE_EFFICIENCY_PCT,
-                value=DEFAULT_MODULE_EFFICIENCY_PCT,
-                step=MODULE_EFFICIENCY_STEP_PCT,
-                key="actual_module_eff",
+            st.text_input(
+                "Panel efficiency",
+                value=f"{DEFAULT_MODULE_EFFICIENCY_PCT:.1f} % assumed",
+                disabled=True,
+                key="actual_module_eff_display",
             )
+            module_efficiency_pct = DEFAULT_MODULE_EFFICIENCY_PCT
+
         with module_cols[3]:
             module_mount_orientation = st.selectbox(
-                "Mount orientation",
+                "Panel orientation",
                 ["Portrait", "Landscape"],
                 index=0,
                 key="mount_orientation",
@@ -3619,7 +3989,7 @@ with st.container(border=True):
             )
 
             installed_panel_count = st.slider(
-                "Target panel count to fit",
+                "Panel count to fit in layout",
                 min_value=1,
                 max_value=max_feasible_panels,
                 value=max_feasible_panels,
@@ -3675,7 +4045,8 @@ with st.container(border=True):
             "Use array zones to define the areas where panels should be fitted. "
             "Leave the default array zone unchanged if the whole usable roof area is available. "
             "Optional obstacles can be added to remove unavailable areas from the layout. "
-            "Movement step defaults to 0.10 m."
+            "Obstacle handling is approximate. Check the resulting panel count and reduce the target panel count if a real layout would need extra access, maintenance or plant clearance. "
+            "Use the nudge distance to control how far obstacles and array zones move each time you press an arrow button."
         )
 
         source_state = build_visual_obstacle_editor(source_state)
@@ -3789,7 +4160,7 @@ with st.container(border=True):
 
                 with manual_cols[4]:
                     tilt_deg = st.selectbox(
-                        "Tilt (deg)",
+                        "Panel pitch / tilt (deg)",
                         SAP_TILT_OPTIONS_DEG,
                         index=SAP_TILT_OPTIONS_DEG.index(30),
                         key=f"manual_array_tilt_{idx}",
@@ -3862,7 +4233,7 @@ with st.container(border=True):
 
     with editor_summary_cols[1]:
         render_summary_card(
-            "Part L target achieved",
+            "Adjusted Part L target achieved",
             f"{part_l_capacity_progress_pct:,.0f}<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>%</span>",
         )
 
@@ -4073,7 +4444,7 @@ with st.container(border=True):
             sap_appendix_u_region = st.selectbox(
                 "SAP Appendix U region",
                 sap_appendix_u_region_options,
-                index=sap_appendix_u_region_options.index("England - London / South East"),
+                index=sap_appendix_u_region_options.index("UK average"),
                 key="sap_appendix_u_region",
             )
 
@@ -4192,12 +4563,26 @@ user_inputs_rows = [
     ("Dwelling inputs", "Ground floor area method", gfa_input_mode),
     ("Dwelling inputs", "Ground floor area", f"{ground_floor_area_m2:,.2f} m²"),
     ("Dwelling inputs", "Ground floor area source", gfa_source_text),
+    ("Part L photovoltaic target", "Target PV planes", f"{int(target_plane_count)}"),
+    ("Part L photovoltaic target", "Target plane share total", f"{target_share_total_pct:.1f} %"),
+    ("Part L photovoltaic target", "Nominal target capacity", f"{nominal_part_l_required_kwp:,.2f} kWp"),
+    ("Part L photovoltaic target", "Adjusted target capacity", f"{part_l_required_kwp:,.2f} kWp"),
+    ("Part L photovoltaic target", "Weighted target factor", f"{target_weighted_effective_factor:.3f}"),
     ("Photovoltaic array layout", "Array input method", array_input_mode),
     ("Photovoltaic array layout", "Roof type", actual_roof_form),
     ("Photovoltaic array layout", "Length along ridge / whole roof length in plan", f"{plan_length_along_ridge_m:,.2f} m"),
     ("Photovoltaic array layout", "Ridge-to-eaves / whole roof width in plan", f"{plan_length_ridge_to_eaves_m:,.2f} m"),
     ("Photovoltaic array layout", "Usable roof area method", offset_mode_section_2),
 ]
+
+for row in target_calculation["plane_rows"]:
+    user_inputs_rows.append(
+        (
+            "Part L photovoltaic target",
+            f"{row['Plane']} inputs",
+            f"{row['Area share (%)']} share / {row['Orientation']} / {row['Panel pitch / tilt (deg)']}° pitch / {row['Shading']} shading",      
+        )
+    )
 
 if actual_roof_form == "Flat":
     user_inputs_rows.append(
@@ -4254,8 +4639,8 @@ else:
 
 user_inputs_rows.extend(
     [
-        ("Photovoltaic array layout", "Module width", f"{module_width_m * 1000:.0f} mm"),
-        ("Photovoltaic array layout", "Module length", f"{module_length_m * 1000:.0f} mm"),
+        ("Photovoltaic array layout", "PV panel width", f"{module_width_m * 1000:.0f} mm"),
+        ("Photovoltaic array layout", "PV panel length", f"{module_length_m * 1000:.0f} mm"),
         ("Photovoltaic array layout", "Module efficiency", f"{module_efficiency_pct:,.1f} %"),
         ("Photovoltaic array layout", "Mount orientation", module_mount_orientation),
         ("Photovoltaic array layout", "Panels fitted / declared", f"{get_total_array_panel_count(pv_arrays)}"),
@@ -4269,14 +4654,21 @@ user_inputs_rows.extend(
 )
 
 calculation_assumption_rows = [
-    ("Part L photovoltaic target", "Required PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+    ("Part L photovoltaic target", "Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+    ("Part L photovoltaic target", "Reference PV area", f"{target_reference_pv_area_m2:,.2f} m²"),
     ("Part L photovoltaic target", "Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
-    ("Part L photovoltaic target", "Target capacity formula", "Ground floor area × required PV area fraction × standard panel efficiency density"),
-    ("Part L photovoltaic target", "Target photovoltaic capacity", f"{part_l_required_kwp:,.2f} kWp"),
+    ("Part L photovoltaic target", "Nominal target capacity formula", "Ground floor area × reference PV area fraction × standard panel efficiency density"),
+    ("Part L photovoltaic target", "Nominal target photovoltaic capacity", f"{nominal_part_l_required_kwp:,.2f} kWp"),
+    ("Part L photovoltaic target", "Target adjustment method", "Nominal target capacity divided by weighted orientation / pitch / shading factor"),
+    ("Part L photovoltaic target", "Reference orientation", PART_L_TARGET_REFERENCE_ORIENTATION),
+    ("Part L photovoltaic target", "Reference panel pitch / tilt", f"{PART_L_TARGET_REFERENCE_TILT_DEG:.0f}°"),
+    ("Part L photovoltaic target", "Reference region", PART_L_TARGET_REFERENCE_REGION),
+    ("Part L photovoltaic target", "Weighted target factor", f"{target_weighted_effective_factor:.3f}"),
+    ("Part L photovoltaic target", "Adjusted target photovoltaic capacity", f"{part_l_required_kwp:,.2f} kWp"),
     ("Part L photovoltaic target", "Equivalent standardised panel count", f"{part_l_required_panel_count}"),
-    ("Part L photovoltaic target", "Standardised module width", f"{STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
-    ("Part L photovoltaic target", "Standardised module length", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} mm"),
-    ("Part L photovoltaic target", "Standardised module efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
+    ("Part L photovoltaic target", "Standardised panel width", f"{STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
+    ("Part L photovoltaic target", "Standardised panel length", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} mm"),
+    ("Part L photovoltaic target", "Standardised panel efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
     ("Photovoltaic array layout", "Roof planes used", f"{len(roof_planes)}"),
     ("Photovoltaic array layout", "Total gross roof area", f"{total_gross_roof_area_m2:,.2f} m²"),
     ("Photovoltaic array layout", "Other reduction area from margins / offsets", f"{other_reduction_area_m2:,.2f} m²"),
@@ -4284,20 +4676,36 @@ calculation_assumption_rows = [
     ("Photovoltaic array layout", "Derived module power", f"{module_power_wp:,.0f} Wp"),
     ("Photovoltaic array layout", "Maximum feasible panel count", f"{max_feasible_panels}"),
     ("Photovoltaic array layout", "Actual array capacity", f"{get_total_array_capacity_kwp(pv_arrays):,.2f} kWp"),
-    ("Photovoltaic array layout", "kWp check against Part L requirement", actual_kwp_status),
+    ("Photovoltaic array layout", "kWp check against adjusted Part L target", actual_kwp_status),
     ("Photovoltaic array layout", "Panel count check against equivalent standardised panel count", actual_panel_status),
     ("Photovoltaic array layout", "Editor fitted kWp", f"{editor_metrics['fitted_kwp']:,.2f} kWp"),
     ("Photovoltaic array layout", "Editor fitted panels", f"{editor_metrics['fitted_panels']}"),
     ("Photovoltaic array layout", "Editor blocked panels", f"{editor_metrics['blocked_panels']}"),
     ("Photovoltaic array layout", "Editor invalid panels", f"{editor_metrics['invalid_panels']}"),
-    ("Photovoltaic array layout", "Editor kWp check against Part L requirement", editor_kwp_status),
+    ("Photovoltaic array layout", "Editor kWp check against adjusted Part L target", editor_kwp_status),
     ("Photovoltaic array layout", "Editor panel count check against equivalent standardised panel count", editor_panel_status),
-    ("Photovoltaic array layout", "Editor movement step default", f"{OBSTACLE_NUDGE_STEP_DEFAULT:.2f} m"),
+    ("Photovoltaic array layout", "Editor nudge distance default", f"{OBSTACLE_NUDGE_STEP_DEFAULT:.2f} m"),
     ("Photovoltaic array energy generation", "Generation method selected", generation_method),
     ("Photovoltaic array energy generation", "Generation status", generation_status_text),
     ("Photovoltaic array energy generation", "Annual generation result", generation_annual_kwh_text),
 
 ]
+
+for row in target_calculation["plane_rows"]:
+    calculation_assumption_rows.append(
+        (
+            "Part L photovoltaic target",
+            f"{row['Plane']} adjustment",
+            (
+                f"{row['Area share (%)']} share, "
+                f"{row['Orientation']}, "
+                f"{row['Panel pitch / tilt (deg)']}° tilt, "
+                f"{row['Shading']} shading, "
+                f"combined factor {row['Combined target factor']}, "
+                f"adjusted target {row['Adjusted target capacity (kWp)']} kWp"
+            ),
+        )
+    )
 
 if generation_method == "PySAM PVWatts":
     calculation_assumption_rows.extend(
