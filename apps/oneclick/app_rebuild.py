@@ -43,8 +43,10 @@ def render_page_shell_and_uploads():
         type=["csv"],
         key="manual_upload",
     )
-    st.caption("Manual CSV must include a 'Building Name' column matching the building names in the table below.")
-
+    st.caption(
+        "Manual CSV must include a 'Building Name' column. "
+        "If no OneClick exports are uploaded, the manual CSV can be used as the only data source."
+    )
     return uploaded_files, manual_file
 
 # =============================================================================
@@ -396,7 +398,7 @@ def load_manual_intensity_rows(
     selected_buildings: list[str],
     em_col: str,
 ) -> pd.DataFrame:
-    df = pd.read_csv(manual_file)
+    df = read_uploaded_csv(manual_file)
 
     required = [
         "Building Name",
@@ -472,6 +474,55 @@ def load_manual_intensity_rows(
 
     return out
 
+def load_manual_only_rows(
+    manual_file,
+    building_meta_df: pd.DataFrame,
+    selected_buildings: list[str],
+) -> tuple[pd.DataFrame, str]:
+    em_col = "kgco2e"
+
+    rows = load_manual_intensity_rows(
+        manual_file=manual_file,
+        building_meta_df=building_meta_df,
+        selected_buildings=selected_buildings,
+        em_col=em_col,
+    )
+
+    if rows.empty:
+        raise ValueError("Manual CSV loaded, but no rows matched the selected buildings.")
+
+    return rows, em_col
+
+def read_uploaded_csv(uploaded_file) -> pd.DataFrame:
+    uploaded_file.seek(0)
+    return pd.read_csv(uploaded_file)
+
+def build_manual_only_building_meta(manual_file) -> pd.DataFrame:
+    df = read_uploaded_csv(manual_file)
+
+    if "Building Name" not in df.columns:
+        raise ValueError("Manual CSV must include a 'Building Name' column.")
+
+    names = (
+        df["Building Name"]
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
+        .drop_duplicates()
+        .tolist()
+    )
+
+    if not names:
+        raise ValueError("Manual CSV contains no valid Building Name values.")
+
+    return pd.DataFrame(
+        {
+            "file_name": [f"manual_only__{name}" for name in names],
+            "building_name": names,
+            "gia_m2": [0.0 for _ in names],
+        }
+    )
 # =============================================================================
 # SECTION 5 — ROW ENRICHMENT AND CLASSIFICATION
 # Derives labels, modules, chart values, contributors, and biogenic totals for
@@ -3127,7 +3178,7 @@ def render_colour_controls_sidebar() -> tuple[dict[str, str], str, str]:
 # =============================================================================
 def render_buildings_editor(building_meta_df: pd.DataFrame) -> pd.DataFrame:
     st.subheader("Buildings")
-    st.caption("Assign a building name and GIA to each uploaded OneClick export.")
+    st.caption("Assign a building name and GIA to each uploaded file or manual-only building.")
 
     edited_buildings = st.data_editor(
         building_meta_df.set_index("file_name", drop=False),
@@ -4021,9 +4072,174 @@ def run_main_app(
 
         render_element_export_download(rows=rows, em_col=em_col)
 
+    elif manual_file is not None:
+        try:
+            building_meta_df = build_manual_only_building_meta(manual_file)
+        except Exception as e:
+            st.error(f"Failed to read manual CSV: {e}")
+            st.stop()
+
+        building_meta_df = render_buildings_editor(building_meta_df)
+        selected_buildings, collapsed_high_level_labels = render_buildings_sidebar_controls(building_meta_df)
+
+        if not selected_buildings:
+            st.info("Select at least one building to continue.")
+            st.stop()
+
+        try:
+            rows, em_col = load_manual_only_rows(
+                manual_file=manual_file,
+                building_meta_df=building_meta_df,
+                selected_buildings=selected_buildings,
+            )
+        except Exception as e:
+            st.error(f"Manual-only upload failed: {e}")
+            st.stop()
+
+        entries = None
+        meta_by_building = {
+            name: {"source": "manual_only"}
+            for name in selected_buildings
+        }
+        selected_meta = building_meta_df[
+            building_meta_df["building_name"].isin(selected_buildings)
+        ].copy()
+
+        total_gia, building_label, selected_buildings_title = build_project_summary(
+            selected_buildings=selected_buildings,
+            selected_meta=selected_meta,
+        )
+
+        if total_gia <= 0 and sidebar_controls["use_intensity"]:
+            st.warning("Enter GIA values for the selected manual-only buildings to show kgCO₂e/m² GIA charts.")
+            st.stop()
+
+        # From this point onwards, reuse the same downstream chart/export flow.
+        recon = build_reconciliation_table(rows, em_col)
+        recon_summary = summarise_reconciliation(recon, tolerance_kg=sidebar_controls["recon_tolerance_kg"])
+        recon_flagged = build_unassigned_rows(rows, em_col, tolerance_kg=sidebar_controls["recon_tolerance_kg"])
+
+        render_project_metadata(meta_by_building)
+
+        project_contingency_pct = render_reconciliation_and_contingency(
+            selected_meta=selected_meta,
+            total_gia=total_gia,
+            recon_summary=recon_summary,
+            recon_flagged=recon_flagged,
+        )
+
+        upfront_modules, wlc_modules_selected = build_module_selections(rows)
+        colour_map, contingency_colour, biogenic_colour = render_colour_controls_sidebar()
+        subcat_map_df = render_chart_items_editor(rows)
+        display_map, group_map, contingency_map, show_map = build_chart_mappings(subcat_map_df)
+        _, rows_chart = prepare_rows_chart(rows, show_map)
+
+        chart_rows = pick_chart_rows_for_current_view(
+            chart_choice=sidebar_controls["chart_choice"],
+            rows=rows,
+            rows_chart=rows_chart,
+        )
+
+        y_min_val, y_max_val, y_dtick_val = resolve_y_axis_settings(
+            manual_y_axis=sidebar_controls["manual_y_axis"],
+            y_axis_min=sidebar_controls["y_axis_min"],
+            y_axis_max=sidebar_controls["y_axis_max"],
+            y_axis_dtick=sidebar_controls["y_axis_dtick"],
+        )
+
+        coverage_modules = resolve_coverage_modules(
+            chart_choice=sidebar_controls["chart_choice"],
+            upfront_modules=upfront_modules,
+            wlc_modules_selected=wlc_modules_selected,
+        )
+
+        coverage_summary, coverage_gaps = compute_chart_coverage(
+            rows=chart_rows,
+            modules=coverage_modules,
+            em_col=em_col,
+            display_map=display_map,
+            group_map=group_map,
+            contingency_map=contingency_map,
+            project_contingency_pct=project_contingency_pct,
+            use_intensity=sidebar_controls["use_intensity"],
+            gia_m2=total_gia,
+        )
+        render_chart_coverage_audit(coverage_summary, coverage_gaps)
+
+        current_fig = render_selected_chart(
+            chart_choice=sidebar_controls["chart_choice"],
+            rows=chart_rows,
+            em_col=em_col,
+            total_gia=total_gia,
+            building_label=building_label,
+            selected_buildings_title=selected_buildings_title,
+            colour_map=colour_map,
+            contingency_colour=contingency_colour,
+            biogenic_colour=biogenic_colour,
+            display_map=display_map,
+            group_map=group_map,
+            contingency_map=contingency_map,
+            project_contingency_pct=project_contingency_pct,
+            upfront_modules=upfront_modules,
+            wlc_modules_selected=wlc_modules_selected,
+            chart_height=sidebar_controls["chart_height"],
+            bar_width=sidebar_controls["bar_width"],
+            small_segment_threshold=sidebar_controls["small_segment_threshold"],
+            segment_border_px=sidebar_controls["segment_border_px"],
+            use_intensity=sidebar_controls["use_intensity"],
+            show_legend=sidebar_controls["show_legend"],
+            collapsed_high_level_labels=collapsed_high_level_labels,
+            y_min_val=y_min_val,
+            y_max_val=y_max_val,
+            y_dtick_val=y_dtick_val,
+            target_line_value=sidebar_controls["target_line_value"] if sidebar_controls["show_target_line"] else None,
+            target_line_label=sidebar_controls["target_line_label"],
+            target_line_colour=sidebar_controls["target_line_colour"],
+            target_line_value_2=sidebar_controls["target_line_value_2"] if sidebar_controls["show_target_line_2"] else None,
+            target_line_label_2=sidebar_controls["target_line_label_2"],
+            target_line_colour_2=sidebar_controls["target_line_colour_2"],
+            bar_label_font_size=sidebar_controls["bar_label_font_size"],
+            mat_module=sidebar_controls["mat_module"],
+            limit_target_line_to_one_bar=sidebar_controls["limit_target_line_to_one_bar"],
+            target_line_bar_scope=sidebar_controls["target_line_bar_scope"],
+            limit_target_line_2_to_one_bar=sidebar_controls["limit_target_line_2_to_one_bar"],
+            target_line_2_bar_scope=sidebar_controls["target_line_2_bar_scope"],
+        )
+
+        render_chart_png_download(
+            current_fig=current_fig,
+            export_width_px=sidebar_controls["export_width_px"],
+            export_height_px=sidebar_controls["export_height_px"],
+            building_label=building_label,
+            chart_choice=sidebar_controls["chart_choice"],
+        )
+
+        stack_export = render_processed_table_downloads(
+            rows=rows,
+            entries=entries,
+            recon=recon,
+            recon_summary=recon_summary,
+            em_col=em_col,
+            display_map=display_map,
+            group_map=group_map,
+        )
+
+        gla_scenario_label, gla_min_group_mass_kg, gla_min_group_share_pct = render_gla_export_settings()
+
+        gla_artifacts = build_gla_export_artifacts(
+            rows=rows,
+            entries=entries,
+            building_label=building_label,
+            gla_scenario_label=gla_scenario_label,
+            gla_min_group_mass_kg=gla_min_group_mass_kg,
+            gla_min_group_share_pct=gla_min_group_share_pct,
+        )
+        render_gla_export_downloads(gla_artifacts)
+
+        render_element_export_download(rows=rows, em_col=em_col)
+
     else:
-        # Empty-state message shown before any OneClick files have been uploaded.
-        st.info("Upload one or more detailReport exports to begin.")
+        st.info("Upload one or more OneClick detailReport exports, or upload a manual entries CSV to use manual-only mode.")
 
 uploaded_files, manual_file = render_page_shell_and_uploads()
 sidebar_controls = render_primary_sidebar_controls()
