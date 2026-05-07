@@ -232,6 +232,7 @@ def get_default_rics_colour(h: str) -> str:
 
     return "#4c78a8"
 
+
 def pick_chart_value_col(df: pd.DataFrame, em_col: str) -> str:
     if "rics_allocated_value" in df.columns:
         return "rics_allocated_value"
@@ -362,6 +363,8 @@ def build_combined_rows(uploaded_files_, building_meta_df: pd.DataFrame, selecte
     selected_meta = building_meta_df[building_meta_df["building_name"].isin(selected_buildings)].copy()
 
     for _, r in selected_meta.iterrows():
+        if str(r.get("source_type", "OneClick")) == "Manual only":
+            continue
         uploaded_file = file_lookup[r["file_name"]]
         rows, meta, entries, em_col = parse_oneclick_uploaded_file(uploaded_file)
 
@@ -391,6 +394,32 @@ def build_combined_rows(uploaded_files_, building_meta_df: pd.DataFrame, selecte
     combined_entries = pd.concat(entries_all, ignore_index=True) if entries_all else None
 
     return combined_rows, combined_entries, meta_by_building, em_col_global, selected_meta
+
+def read_uploaded_csv(uploaded_file) -> pd.DataFrame:
+    uploaded_file.seek(0)
+    return pd.read_csv(uploaded_file)
+
+
+def extract_manual_building_names(manual_file) -> list[str]:
+    if manual_file is None:
+        return []
+
+    df = read_uploaded_csv(manual_file)
+
+    if "Building Name" not in df.columns:
+        raise ValueError("Manual CSV must include a 'Building Name' column.")
+
+    names = (
+        df["Building Name"]
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
+        .drop_duplicates()
+        .tolist()
+    )
+
+    return names
 
 def load_manual_intensity_rows(
     manual_file,
@@ -922,35 +951,124 @@ def compute_chart_coverage(
 # Builds and persists the editable subcategory map used for grouping, visibility,
 # display-name overrides, and contingency by subcategory.
 # =============================================================================
-def sync_building_meta(uploaded_files_) -> pd.DataFrame:
-    cols = ["file_name", "building_name", "gia_m2"]
+def sync_building_meta_mixed(uploaded_files_, manual_file=None) -> pd.DataFrame:
+    cols = ["file_name", "building_name", "gia_m2", "source_type"]
 
-    fresh = pd.DataFrame(
-        [
+    oneclick_rows = []
+    for f in uploaded_files_ or []:
+        oneclick_rows.append(
             {
                 "file_name": f.name,
                 "building_name": default_building_name(f.name),
                 "gia_m2": 0.0,
+                "source_type": "OneClick",
             }
-            for f in uploaded_files_
-        ],
-        columns=cols,
+        )
+
+    fresh_oneclick = pd.DataFrame(oneclick_rows, columns=cols)
+
+    # Preserve any user-edited OneClick building names/GIAs from session state first.
+    if "building_meta_df" in st.session_state and not fresh_oneclick.empty:
+        existing = st.session_state["building_meta_df"].copy()
+
+        for col in cols:
+            if col not in existing.columns:
+                existing[col] = ""
+
+        existing = existing[cols].copy()
+
+        fresh_oneclick = fresh_oneclick[["file_name", "source_type"]].merge(
+            existing[["file_name", "building_name", "gia_m2"]],
+            on="file_name",
+            how="left",
+        )
+
+        default_name = dict(zip([r["file_name"] for r in oneclick_rows], [r["building_name"] for r in oneclick_rows]))
+        default_gia = dict(zip([r["file_name"] for r in oneclick_rows], [r["gia_m2"] for r in oneclick_rows]))
+
+        fresh_oneclick["building_name"] = (
+            fresh_oneclick["building_name"]
+            .fillna(fresh_oneclick["file_name"].map(default_name))
+            .astype(str)
+            .str.strip()
+        )
+        fresh_oneclick["gia_m2"] = pd.to_numeric(fresh_oneclick["gia_m2"], errors="coerce").fillna(
+            fresh_oneclick["file_name"].map(default_gia)
+        )
+
+        fresh_oneclick = fresh_oneclick[cols].copy()
+
+    # Now dedupe manual-only rows against the *current edited* OneClick building names.
+    oneclick_names = set(
+        fresh_oneclick["building_name"]
+        .astype(str)
+        .str.strip()
+        .tolist()
     )
 
-    if "building_meta_df" not in st.session_state:
-        st.session_state["building_meta_df"] = fresh.copy()
-        return st.session_state["building_meta_df"]
+    manual_rows = []
+    manual_names = extract_manual_building_names(manual_file) if manual_file is not None else []
 
-    existing = st.session_state["building_meta_df"][cols].copy()
-    out = fresh[["file_name"]].merge(existing, on="file_name", how="left", suffixes=("", "_old"))
+    for name in manual_names:
+        name_clean = str(name).strip()
+        if not name_clean:
+            continue
 
-    default_name = dict(zip(fresh["file_name"], fresh["building_name"]))
-    default_gia = dict(zip(fresh["file_name"], fresh["gia_m2"]))
+        # If the manual CSV building name already exists as a OneClick building,
+        # do not create a separate manual-only building. The manual rows will attach
+        # to that OneClick building through load_manual_intensity_rows().
+        if name_clean in oneclick_names:
+            continue
 
-    out["building_name"] = out["building_name"].fillna(out["file_name"].map(default_name))
-    out["gia_m2"] = pd.to_numeric(out["gia_m2"], errors="coerce").fillna(out["file_name"].map(default_gia))
+        manual_rows.append(
+            {
+                "file_name": f"manual_only__{name_clean}",
+                "building_name": name_clean,
+                "gia_m2": 0.0,
+                "source_type": "Manual only",
+            }
+        )
 
-    out = out[cols].copy()
+    fresh_manual = pd.DataFrame(manual_rows, columns=cols)
+    fresh = pd.concat([fresh_oneclick, fresh_manual], ignore_index=True) if not fresh_manual.empty else fresh_oneclick.copy()
+
+    if fresh.empty:
+        st.session_state["building_meta_df"] = fresh
+        return fresh
+
+    # Preserve GIA/name edits for manual-only rows too.
+    if "building_meta_df" in st.session_state:
+        existing = st.session_state["building_meta_df"].copy()
+
+        for col in cols:
+            if col not in existing.columns:
+                existing[col] = ""
+
+        existing = existing[cols].copy()
+
+        out = fresh[["file_name", "source_type"]].merge(
+            existing[["file_name", "building_name", "gia_m2"]],
+            on="file_name",
+            how="left",
+        )
+
+        default_name = dict(zip(fresh["file_name"], fresh["building_name"]))
+        default_gia = dict(zip(fresh["file_name"], fresh["gia_m2"]))
+
+        out["building_name"] = (
+            out["building_name"]
+            .fillna(out["file_name"].map(default_name))
+            .astype(str)
+            .str.strip()
+        )
+        out["gia_m2"] = pd.to_numeric(out["gia_m2"], errors="coerce").fillna(
+            out["file_name"].map(default_gia)
+        )
+
+        out = out[cols].copy()
+    else:
+        out = fresh[cols].copy()
+
     st.session_state["building_meta_df"] = out
     return out
 
@@ -2021,8 +2139,8 @@ def plot_rics_two_stacks(
     upfront_segments, upfront_high_segments, upfront_bio = build_stack_data(rows, upfront_modules, add_biogenic=True)
     whole_life_segments, whole_life_high_segments, whole_life_bio = build_stack_data(rows, whole_life_modules, add_biogenic=True)
 
-    upfront_total = sum(s["value"] for s in upfront_segments) + upfront_bio
-    whole_life_total = sum(s["value"] for s in whole_life_segments) + whole_life_bio
+    upfront_total = sum(s["value"] for s in upfront_segments)
+    whole_life_total = sum(s["value"] for s in whole_life_segments)
 
     def fmt_total(v: float) -> str:
         return f"{v:,.0f} {y_unit}"
@@ -3178,7 +3296,7 @@ def render_colour_controls_sidebar() -> tuple[dict[str, str], str, str]:
 # =============================================================================
 def render_buildings_editor(building_meta_df: pd.DataFrame) -> pd.DataFrame:
     st.subheader("Buildings")
-    st.caption("Assign a building name and GIA to each uploaded file or manual-only building.")
+    st.caption("Assign a building name and GIA to each OneClick or manual-only building.")
 
     edited_buildings = st.data_editor(
         building_meta_df.set_index("file_name", drop=False),
@@ -3186,6 +3304,7 @@ def render_buildings_editor(building_meta_df: pd.DataFrame) -> pd.DataFrame:
         num_rows="fixed",
         column_config={
             "file_name": st.column_config.TextColumn("Uploaded file", disabled=True),
+            "source_type": st.column_config.TextColumn("Source type", disabled=True),
             "building_name": st.column_config.TextColumn("Building name"),
             "gia_m2": st.column_config.NumberColumn("GIA (m²)", min_value=0.0, step=1.0),
         },
@@ -3218,12 +3337,10 @@ def load_project_rows_or_stop(
         st.error(f"Failed to parse selected building files: {e}")
         st.stop()
 
-    validate_required_columns(
-        rows,
-        ["section", "rics_detail", "rics_high_label", "rics_level2_label", "_source_row_id", em_col],
-        "Parsed OneClick rows",
-    )
+    if em_col is None:
+        em_col = "kgco2e"
 
+    # Load manual rows once only.
     if manual_file_obj is not None:
         try:
             manual_rows = load_manual_intensity_rows(
@@ -3244,6 +3361,12 @@ def load_project_rows_or_stop(
     if rows.empty:
         st.info("No rows found for the selected buildings.")
         st.stop()
+
+    validate_required_columns(
+        rows,
+        ["section", "rics_detail", "rics_high_label", "rics_level2_label", "_source_row_id", em_col],
+        "Combined OneClick/manual rows",
+    )
 
     return rows, entries, meta_by_building, em_col, selected_meta
 
@@ -3932,8 +4055,8 @@ def run_main_app(
     manual_file,
     sidebar_controls: dict,
 ) -> None:
-    if uploaded_files:
-        building_meta_df = sync_building_meta(uploaded_files).copy()
+    if uploaded_files or manual_file is not None:
+        building_meta_df = sync_building_meta_mixed(uploaded_files, manual_file).copy()
         building_meta_df = render_buildings_editor(building_meta_df)
         selected_buildings, collapsed_high_level_labels = render_buildings_sidebar_controls(building_meta_df)
 
@@ -4239,6 +4362,7 @@ def run_main_app(
         render_element_export_download(rows=rows, em_col=em_col)
 
     else:
+        # Empty-state message shown before any OneClick files have been uploaded.
         st.info("Upload one or more OneClick detailReport exports, or upload a manual entries CSV to use manual-only mode.")
 
 uploaded_files, manual_file = render_page_shell_and_uploads()

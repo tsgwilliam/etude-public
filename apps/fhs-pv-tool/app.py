@@ -100,6 +100,8 @@ SUMMARY_UNIT_COLOUR = "#444444"
 LOGO_PATH = RESOURCE_DIR / "Etude-logo-animation-v005 Single spin.gif"
 LOGO_WIDTH = 180
 
+SHOW_ARRAY_PROGRESS_AND_SUMMARY = False
+
 
 # -----------------------------------------------------------------------------
 # Section theme colours from logo
@@ -996,7 +998,7 @@ def calculate_appendix_u_annual_surface_irradiation_kwh_m2(
 def calculate_sap_appendix_u_array_generation(
     array: PvArray,
     region: str,
-    inverter_efficiency: float = 0.95,
+    system_performance_factor: float = 0.80,
 ) -> dict:
     orientation_label = get_appendix_u_orientation_label(array.azimuth_deg)
     tilt_label = get_appendix_u_tilt_label(array.tilt_deg)
@@ -1014,7 +1016,7 @@ def calculate_sap_appendix_u_array_generation(
     ]
 
     monthly_generation = [
-        float(array.capacity_kwp) * monthly_irradiation * shading_factor * inverter_efficiency
+        float(array.capacity_kwp) * monthly_irradiation * shading_factor * system_performance_factor
         for monthly_irradiation in monthly_surface_irradiation_kwh_m2
     ]
 
@@ -1033,7 +1035,7 @@ def calculate_sap_appendix_u_array_generation(
         "tilt_deg": float(array.tilt_deg),
         "tilt_label": tilt_label,
         "shading_factor": shading_factor,
-        "inverter_efficiency": float(inverter_efficiency),
+        "system_performance_factor": float(system_performance_factor),
         "sap_region": region_data["sap_region"],
         "sap_region_name": region_data["sap_region_name"],
         "latitude_deg": region_data["latitude_deg"],
@@ -1048,7 +1050,7 @@ def calculate_sap_appendix_u_array_generation(
 def calculate_sap_appendix_u_generation(
     pv_arrays: list[PvArray],
     region: str,
-    inverter_efficiency: float = 0.95,
+    system_performance_factor: float = 0.80,
 ) -> dict:
     enabled_arrays = get_enabled_pv_arrays(pv_arrays)
 
@@ -1060,7 +1062,7 @@ def calculate_sap_appendix_u_generation(
         array_result = calculate_sap_appendix_u_array_generation(
             array=array,
             region=region,
-            inverter_efficiency=inverter_efficiency,
+            system_performance_factor=system_performance_factor,
         )
 
         annual_total += array_result["annual_generation_kwh"]
@@ -1101,7 +1103,7 @@ def build_sap_appendix_u_array_rows(array_results: list[dict]) -> list[dict]:
                 "Representative latitude": f"{result['latitude_deg']:.1f}°N",
                 "Annual surface irradiation (kWh/m²)": f"{result['annual_surface_irradiation_kwh_m2']:.0f}",
                 "Shading factor": f"{result['shading_factor']:.2f}",
-                "Inverter efficiency": f"{result['inverter_efficiency']:.2f}",
+                "System performance factor": f"{result['system_performance_factor']:.2f}",
                 "Annual generation (kWh/a)": f"{result['annual_generation_kwh']:.0f}",
             }
         )
@@ -3239,10 +3241,10 @@ with header_right:
 # -----------------------------------------------------------------------------
 st.markdown(
     """
-Solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
-This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, using ground floor area and a simplified adjustment for array orientation, pitch / tilt and shading.
+Roof-mounted solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
+This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, including a simplified adjustment for array orientation, pitch and shading.
 
-The tool is intended as a simple guide rather than a substitute for full compliance modelling. The array layout section provides a simplified early-stage capacity check; it is not a detailed PV design tool. Please carry out your own checks and let us know if anything looks inconsistent, so that we can review and improve the tool.
+The tool is intended as a simple guide rather than a substitute for full compliance modelling. The target calculation and generation estimates should be checked against the final approved Part L 2026 / SAP 10.3 methodology before being used for compliance decisions.
 
 If you have questions about Part L 2026, SAP 10.3 or the Home Energy Model (HEM), contact Etude at london@etude.co.uk. We can help assess how your design is likely to perform, including energy demand, energy use and renewable energy generation.
 """
@@ -3256,29 +3258,27 @@ with st.expander("Method summary", expanded=False):
         """
 This tool is split into four main sections.
 
-**Dwelling inputs** captures the house form, array layout type and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
+**Dwelling inputs** captures the house form, array type and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
 
 **Part L photovoltaic target** calculates an indicative target photovoltaic capacity from ground floor area and one representative PV assumption: orientation, panel pitch / tilt and shading. The base target is based on 40% of ground floor area at 0.22 kWp/m², then adjusted using the selected orientation, pitch / tilt and shading assumptions.
+
+The target varies with orientation, pitch and shading because the simplified method adjusts the required installed capacity to reflect expected PV yield. Less favourable orientations or higher shading therefore require a larger PV capacity to provide an equivalent contribution.
 
 The Part L target check is based on installed photovoltaic capacity in kWp compared with the target capacity. The target panel count is informational only and is based on a standardised module size and efficiency.
 
 **Photovoltaic array layout** creates the proposed installed PV system that is compared against the target. Two input routes are available:
 
-- **Visual roof layout**: uses simplified array layout geometry, array zones and optional obstacles to fit panels.
 - **Manual array input**: allows one or more installed arrays to be entered directly by capacity, orientation, pitch / tilt and shading.
-
-The visual layout route uses three simplified array layout types:
-
-- **Single roof plane**: one sloping PV plane. Use this for mono-pitch roofs, or for duo-pitch roofs where PV is only proposed on the better-oriented roof plane.
-- **Dual roof plane**: two identical sloping PV planes, with the second rotated by 180°. In V1, panels are split across both planes rather than automatically filling the better-oriented plane first.
-- **Dual-tilt flat roof**: one flat roof area with panels treated as a simplified dual-tilt arrangement.
+- **Visual roof layout**: uses simplified roof geometry, array zones and optional obstacles to fit panels.
 
 This tool follows a simplified array-based approach: the Part L target is calculated at dwelling level, then the proposed PV system is entered as one or more arrays with their own capacity, orientation, pitch / tilt and shading. This avoids asking users to allocate a theoretical PV area across roof planes.
 
 **Photovoltaic array energy generation** reuses the arrays from the layout section. It can estimate annual generation using either:
 
-- **PySAM PVWatts**, with a selected local EPW weather file; or
-- **SAP Appendix U**, using coded monthly irradiance, declination, representative latitude and orientation constants.
+- **SAP Appendix U**, using coded monthly irradiance, declination, representative latitude and orientation constants; or
+- **PySAM PVWatts**, with a selected local EPW weather file.
+
+SAP Appendix U is the recommended default for this prototype. PySAM PVWatts is included as an optional weather-file-based comparison route.
 
 The generation result is reported separately in kWh/year. Orientation, pitch / tilt and shading effects for the installed arrays are reflected in the generation section, not in the installed-capacity percentage check.
 """
@@ -3292,8 +3292,7 @@ with st.expander("Current limits", expanded=False):
 - The SAP / weather regions are broad app-level regions and are not yet postcode-district precise.
 - The Appendix U implementation uses representative SAP climate regions rather than a full postcode-to-SAP-region lookup.
 - The roof fit still uses simplified roof reductions rather than a full geometric roof model.
-- Dual roof plane mode splits panels across both planes. It does not currently prioritise the better-oriented plane before using the second plane.
-- Dual-tilt flat roof mode uses a single roof area in the editor. For generation, flat-roof panels are currently treated as a simplified 50/50 dual-tilt arrangement.
+- Flat roofs use a single roof plane in the editor. For generation, flat-roof panels are currently treated as a simplified 50/50 dual-tilt arrangement.
 - Flat-roof row spacing still needs to be developed properly.
 - Hipped roofs are not included in this simplified method.
 - Array zones are rectangular only and do not yet support polygon drawing.
@@ -3311,8 +3310,7 @@ with st.expander("Terminology", expanded=False):
 - **PV panel**: a single photovoltaic module/panel.
 - **kWp**: peak DC capacity of the PV array under standard test conditions.
 - **Orientation / azimuth**: direction the PV array faces.
-- **Single roof plane**: one sloping PV plane used for the proposed PV array.
-- **Dual roof plane**: two opposed sloping PV planes, with the second plane rotated by 180° from the first.
+- **Array type**: simplified route for describing the proposed PV arrangement: single roof plane, dual roof plane, or dual-tilt flat roof.
 - **Dual-tilt**: a flat-roof mounting arrangement with panels split between two opposed low-pitch directions.
 - **EPW**: EnergyPlus Weather file used for hourly weather-based generation modelling.
 - **PySAM PVWatts**: a photovoltaic generation model used to estimate annual and monthly PV output.
@@ -3330,7 +3328,7 @@ with st.container(border=True):
 
     with dwelling_top[0]:
         house_form = st.selectbox(
-            "House form",
+            "Type of house (flats not currently supported",
             ["Detached", "Semi-detached", "End terrace", "Mid terrace"],
             index=0,
             key="dwelling_house_form",
@@ -3338,7 +3336,7 @@ with st.container(border=True):
 
     with dwelling_top[1]:
         array_layout_type = st.selectbox(
-            "Array layout type",
+            "Where is the PV array going?",
             ["Single roof plane", "Dual roof plane", "Dual-tilt flat roof"],
             index=0,
             key="array_layout_type",
@@ -3347,13 +3345,13 @@ with st.container(border=True):
 
     with dwelling_top[2]:
         gfa_input_mode = st.selectbox(
-            "Ground floor area method",
-            ["Enter explicitly", "Derive from external dimensions"],
+            "How do you want to define ground floor area?",
+            ["Enter the value", "Calculate from external building dimensions"],
             index=0,
             key="dwelling_gfa_mode",
         )
 
-    if gfa_input_mode == "Enter explicitly":
+    if gfa_input_mode == "Enter the value":
         ground_floor_area_m2 = st.slider(
             "Ground floor area (m²)",
             min_value=20.00,
@@ -3362,7 +3360,7 @@ with st.container(border=True):
             step=0.01,
             key="dwelling_gfa_direct",
         )
-        gfa_source_text = "Entered explicitly"
+        gfa_source_text = "Enter the value"
 
         st.caption(
             "Enter the ground floor area measured to the internal face of the external perimeter walls. "
@@ -3370,11 +3368,6 @@ with st.container(border=True):
         )
 
     else:
-        st.caption(
-            "This helper approximates the internally measured ground floor area from simple external dwelling dimensions. "
-            "Use the explicit input where a measured Part L/SAP floor area is available."
-        )
-
         gfa_geom_cols = st.columns(3)
 
         with gfa_geom_cols[0]:
@@ -3406,6 +3399,11 @@ with st.container(border=True):
                 step=0.01,
                 key="dwelling_gfa_wall",
             )
+            
+        st.caption(
+            "This helper approximates the internally measured ground floor area from simple external dwelling dimensions. "
+            "Use the explicit input where a measured Part L/SAP floor area is available."
+        )
 
         ground_floor_area_m2 = calc_spreadsheet_gfa(
             width_parallel_to_ridge_m=ridge_parallel_width_for_gfa_m,
@@ -3422,11 +3420,10 @@ render_section_title("part_l_target", "Part L photovoltaic target")
 with st.container(border=True):
     st.caption(
         "Indicative photovoltaic array capacity target based on ground floor area and one representative PV orientation, pitch and shading assumption."
-    )
-
-    st.caption(
         "Use the target assumptions that best represent the intended installed PV array. "
         "The detailed layout section below is a separate capacity/layout check."
+        "The target varies with orientation, pitch and shading because less favourable PV assumptions require more installed capacity to provide an equivalent contribution. "
+        "Use the assumptions that best represent the intended installed PV array."
     )
 
     if actual_roof_form == "Flat":
@@ -3627,19 +3624,19 @@ with st.container(border=True):
     if array_input_mode == "Visual roof layout":
         helper_text = {
             "Single roof plane": (
-                "Use this for a mono-pitch roof, or for a duo-pitch roof where PV is only proposed on the better-oriented roof plane."
+                "Use for mono-pitch roofs, or where PV is only proposed on one roof slope."
             ),
             "Dual roof plane": (
-                "Use this only where PV is intended on both roof planes. The current V1 layout splits panels across both planes rather than filling the better-oriented plane first."
+                "Use only where PV is intended on both roof planes. V1 splits panels across both planes rather than filling the better-oriented plane first."
             ),
             "Dual-tilt flat roof": (
-                "Use this for a simplified flat-roof dual-tilt arrangement."
+                "Use for a simplified flat-roof dual-tilt arrangement."
             ),
         }[array_layout_type]
 
-        st.info(f"Array layout type: {array_layout_type}. {helper_text}")
-
-        st.info(f"Roof type inherited from dwelling inputs: {actual_roof_form}. {helper_text}")
+        st.caption(
+            f"Layout: {array_layout_type}. Roof type from dwelling inputs: {actual_roof_form}. {helper_text}"
+        )
 
         st.markdown("**Roof parameters**")
 
@@ -3675,18 +3672,14 @@ with st.container(border=True):
                 layout_flat_sap_pitch_deg = map_actual_pitch_to_sap_pitch(flat_panel_pitch_deg)
 
                 st.caption(
-                    f"The selected physical pitch is used for the layout geometry. "
-                    f"For SAP-style calculations, {flat_panel_pitch_deg:.0f}° maps to the nearest SAP pitch category: "
+                    f"Used for layout geometry and generation. For SAP-style calculations, "
+                    f"{flat_panel_pitch_deg:.0f}° maps to the nearest SAP pitch category: "
                     f"{layout_flat_sap_pitch_deg}°."
                 )
 
             mono_or_duo_azimuth_deg = None
             mono_or_duo_pitch_deg = 0.0
 
-            st.info(
-                "Flat roof assumption: the roof itself is horizontal. Panels are treated as a simplified 50/50 dual-tilt arrangement for generation. "
-                "The panel pitch set above is applied to the PV arrays. TODO: row spacing still needs to be developed properly."
-            )
         else:
             flat_panel_pitch_deg = float(DEFAULT_FLAT_PANEL_PITCH_DEG)
 
@@ -3785,6 +3778,7 @@ with st.container(border=True):
                 )
 
             simple_setback_m = 0.0
+
         roof_geometry = build_roof_geometry(
             roof_form=actual_roof_form,
             plan_length_along_ridge_m=plan_length_along_ridge_m,
@@ -3931,11 +3925,8 @@ with st.container(border=True):
 
         st.markdown("**Interactive array layout editor (beta)**")
         st.caption(
-            "Use array zones to define the areas where panels should be fitted. "
-            "Leave the default array zone unchanged if the whole usable roof area is available. "
-            "Optional obstacles can be added to remove unavailable areas from the layout. "
-            "Obstacle handling is approximate. Check the resulting panel count and reduce the target panel count if a real layout would need extra access, maintenance or plant clearance. "
-            "Use the nudge distance to control how far obstacles and array zones move each time you press an arrow button."
+            "Use array zones to define where panels should be fitted. Leave the default zone unchanged if the whole usable area is available. "
+            "Optional obstacles can remove unavailable areas. Obstacle handling is approximate, so check the resulting panel count."
         )
 
         source_state = build_visual_obstacle_editor(source_state)
@@ -3959,7 +3950,6 @@ with st.container(border=True):
             module_power_kwp=module_power_kwp,
         )
 
-        # The shared object used by downstream sections.
         visual_panel_counts_by_plane = editor_metrics.get("fitted_panels_by_plane", {})
         actual_array_panel_counts = [
             int(visual_panel_counts_by_plane.get(f"plane_{idx}", 0))
@@ -3987,7 +3977,6 @@ with st.container(border=True):
 
         editor_kwp_status = actual_kwp_status
         editor_panel_status = "Informative only"
-
     else:
         st.markdown("**Manual array input**")
         st.caption(
@@ -4097,59 +4086,59 @@ with st.container(border=True):
         required_kwp=part_l_required_kwp,
     )
 
-    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+    if SHOW_ARRAY_PROGRESS_AND_SUMMARY:
+        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
-    editor_summary_cols = st.columns(4)
+        editor_summary_cols = st.columns(4)
 
-    with editor_summary_cols[0]:
-        render_summary_card(
-            "Installed array capacity",
-            f"{get_total_array_capacity_kwp(pv_arrays):,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
-        )
+        with editor_summary_cols[0]:
+            render_summary_card(
+                "Installed array capacity",
+                f"{get_total_array_capacity_kwp(pv_arrays):,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
+            )
 
-    with editor_summary_cols[1]:
-        render_summary_card(
-            "Installed capacity vs target",
-            f"{part_l_capacity_progress_pct:,.0f}<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>%</span>",
-        )
+        with editor_summary_cols[1]:
+            render_summary_card(
+                "Installed capacity vs target",
+                f"{part_l_capacity_progress_pct:,.0f}<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>%</span>",
+            )
 
-    with editor_summary_cols[2]:
-        render_summary_card(
-            "Arrays defined",
-            f"{len(pv_arrays)}",
-        )
+        with editor_summary_cols[2]:
+            summary_count_label = (
+                "Panels fitted"
+                if array_input_mode == "Visual roof layout"
+                else "Estimated panel count"
+            )
+            render_summary_card(
+                summary_count_label,
+                f"{get_total_array_panel_count(pv_arrays)}",
+            )
 
-    with editor_summary_cols[3]:
-        if array_input_mode == "Visual roof layout":
+        with editor_summary_cols[3]:
             render_summary_card(
                 "Panels blocked / invalid",
                 f"{editor_metrics['blocked_panels'] + editor_metrics['invalid_panels']}",
             )
-        else:
-            render_summary_card(
-                "Estimated panel count",
-                f"{get_total_array_panel_count(pv_arrays)}",
-            )
 
-    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
-    capacity_progress_fig = build_part_l_capacity_progress_chart(
-        required_kwp=part_l_required_kwp,
-        actual_kwp=get_total_array_capacity_kwp(pv_arrays),
-    )
+        capacity_progress_fig = build_part_l_capacity_progress_chart(
+            required_kwp=part_l_required_kwp,
+            actual_kwp=get_total_array_capacity_kwp(pv_arrays),
+        )
 
-    st.plotly_chart(
-        capacity_progress_fig,
-        theme=None,
-        width="stretch",
-        key="part_l_capacity_progress_chart",
-    )
+        st.plotly_chart(
+            capacity_progress_fig,
+            theme=None,
+            width="stretch",
+            key="part_l_capacity_progress_chart",
+        )
 
-    st.markdown("**Array summary passed to generation calculation**")
-    array_summary_rows = build_array_summary_rows(pv_arrays)
-    if not array_summary_rows:
-        array_summary_rows = build_empty_pv_array_summary_rows()
-    st.dataframe(pd.DataFrame(array_summary_rows), hide_index=True, width="stretch")
+        st.markdown("**Array summary passed to generation calculation**")
+        array_summary_rows = build_array_summary_rows(pv_arrays)
+        if not array_summary_rows:
+            array_summary_rows = build_empty_pv_array_summary_rows()
+        st.dataframe(pd.DataFrame(array_summary_rows), hide_index=True, width="stretch")
 
 # -----------------------------------------------------------------------------
 # Photovoltaic array energy generation
@@ -4157,19 +4146,18 @@ with st.container(border=True):
 render_section_title("generation_estimate", "Photovoltaic array energy generation")
 with st.container(border=True):
     st.caption(
-        "This section estimates annual electricity generation in kWh from the PV arrays passed from either "
-        "the visual roof layout or the manual array input route. The user can choose PySAM PVWatts with an EPW "
-        "weather file, or the SAP Appendix U lookup method."
+        "This section estimates annual electricity generation in kWh from the PV arrays passed from the layout section. "
+        "SAP Appendix U is the recommended default for this prototype. PySAM PVWatts is optional and intended for weather-file-based comparison only."
     )
+    
 
     generation_method = st.radio(
         "Generation calculation method",
-        ["PySAM PVWatts", "SAP Appendix U"],
-        index=0,
+        ["SAP Appendix U", "PySAM PVWatts (Optional)"],
+        index=1,
         horizontal=True,
         key="generation_method",
     )
-
     enabled_generation_arrays = get_enabled_pv_arrays(pv_arrays)
     total_generation_capacity_kwp = get_total_array_capacity_kwp(enabled_generation_arrays)
     total_generation_panel_count = get_total_array_panel_count(enabled_generation_arrays)
@@ -4180,8 +4168,7 @@ with st.container(border=True):
 
     sap_appendix_u_result = None
     sap_appendix_u_message = None
-    sap_appendix_u_inverter_efficiency = 0.95
-
+    sap_appendix_u_system_performance_factor = 0.80
     generation_result = None
     generation_message = None
     generation_result_annual_kwh = 0.0
@@ -4279,7 +4266,7 @@ with st.container(border=True):
                     ("Radiation / weather source", selected_epw.name if selected_epw else ""),
                     ("Selected EPW", epw_label),
                     ("Array source", array_input_mode),
-                    ("Estimated / fitted panel count", f"{total_generation_panel_count}")
+                    ("Estimated / fitted panel count", f"{total_generation_panel_count}"),
                     ("Total system capacity used", f"{total_generation_capacity_kwp:,.2f} kWp"),
                     ("Annual AC generation", f"{pysam_result['annual_ac_kwh']:,.0f} kWh/a"),
                 ],
@@ -4331,14 +4318,19 @@ with st.container(border=True):
             )
 
         with sap_cols[1]:
-            sap_appendix_u_inverter_efficiency = st.number_input(
-                "Inverter efficiency",
-                min_value=0.50,
-                max_value=1.00,
-                value=0.95,
-                step=0.01,
-                key="sap_appendix_u_inverter_efficiency",
-            )
+                sap_appendix_u_system_performance_factor = st.number_input(
+                    "System performance factor",
+                    min_value=0.50,
+                    max_value=1.00,
+                    value=0.80,
+                    step=0.01,
+                    key="sap_appendix_u_system_performance_factor",
+                )
+
+                st.caption(
+                    "SAP-style generation uses a total system performance factor, not inverter efficiency alone. "
+                    "The default 0.80 represents approximately 20% total system losses."
+                )
 
         with sap_cols[2]:
             st.text_input(
@@ -4360,7 +4352,7 @@ with st.container(border=True):
                 sap_appendix_u_result = calculate_sap_appendix_u_generation(
                     pv_arrays=enabled_generation_arrays,
                     region=sap_appendix_u_region,
-                    inverter_efficiency=float(sap_appendix_u_inverter_efficiency),
+                    system_performance_factor=float(sap_appendix_u_system_performance_factor),
                 )
 
                 generation_result = sap_appendix_u_result
@@ -4377,7 +4369,7 @@ with st.container(border=True):
                     ("Array source", array_input_mode),
                     ("Total declared / fitted panel count", f"{total_generation_panel_count}"),
                     ("Total system capacity used", f"{total_generation_capacity_kwp:,.2f} kWp"),
-                    ("Inverter efficiency", f"{sap_appendix_u_inverter_efficiency:.2f}"),
+                    ("System performance factor", f"{sap_appendix_u_system_performance_factor:.2f}"),
                     ("Annual generation", f"{sap_appendix_u_result['annual_generation_kwh']:,.0f} kWh/a"),
                 ],
                 columns=["Metric", "Value"],
@@ -4431,7 +4423,7 @@ if generation_method == "PySAM PVWatts":
     selected_epw_file = selected_epw.name if selected_epw is not None else "Not selected"
 elif generation_method == "SAP Appendix U":
     sap_appendix_u_region_summary = locals().get("sap_appendix_u_region", "Not selected")
-    sap_appendix_u_inverter_efficiency_summary = f"{float(sap_appendix_u_inverter_efficiency):.2f}"
+    sap_appendix_u_inverter_efficiency_summary = f"{float(sap_appendix_u_system_performance_factor):.2f}"
 
 if generation_result is not None:
     generation_status_text = "Calculated"
@@ -4523,7 +4515,7 @@ user_inputs_rows.extend(
         ("Photovoltaic array energy generation", "Selected EPW", selected_epw_label),
         ("Photovoltaic array energy generation", "Selected EPW file", selected_epw_file),
         ("Photovoltaic array energy generation", "SAP Appendix U region", sap_appendix_u_region_summary),
-        ("Photovoltaic array energy generation", "SAP Appendix U inverter efficiency", sap_appendix_u_inverter_efficiency_summary),
+        ("Photovoltaic array energy generation", "SAP Appendix U system performance factor", sap_appendix_u_inverter_efficiency_summary),
     ]
 )
 
@@ -4598,7 +4590,7 @@ elif generation_method == "SAP Appendix U":
             ("Photovoltaic array energy generation", "SAP Appendix U horizontal irradiance source", "Monthly mean horizontal irradiance values coded in SAP_APPENDIX_U_REGION_DATA"),
             ("Photovoltaic array energy generation", "SAP Appendix U declination source", "Monthly solar declination values coded in SAP_APPENDIX_U_SOLAR_DECLINATION_DEG"),
             ("Photovoltaic array energy generation", "SAP Appendix U orientation constants source", "Orientation constants coded in SAP_APPENDIX_U_TABLE_U5_CONSTANTS"),
-            ("Photovoltaic array energy generation", "Inverter efficiency", sap_appendix_u_inverter_efficiency_summary),
+            ("Photovoltaic array energy generation", "System performance factor", sap_appendix_u_inverter_efficiency_summary),
             ("Photovoltaic array energy generation", "Shading treatment", "Array-level shading factor applied to SAP Appendix U generation"),
         ]
     )
