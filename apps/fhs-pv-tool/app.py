@@ -1114,8 +1114,8 @@ def build_sap_appendix_u_array_rows(array_results: list[dict]) -> list[dict]:
 # Part L photovoltaic target adjustment helpers
 # -----------------------------------------------------------------------------
 PART_L_TARGET_REFERENCE_REGION = "UK average"
-PART_L_TARGET_REFERENCE_ORIENTATION = "South"
-PART_L_TARGET_REFERENCE_TILT_DEG = 30.0
+PART_L_TARGET_REFERENCE_ORIENTATION = "South East"
+PART_L_TARGET_REFERENCE_TILT_DEG = 45.0
 PART_L_TARGET_REFERENCE_SHADING_FACTOR = 1.0
 PART_L_TARGET_MIN_EFFECTIVE_FACTOR = 0.05
 
