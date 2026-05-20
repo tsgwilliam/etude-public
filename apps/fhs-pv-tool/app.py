@@ -88,12 +88,12 @@ SUMMARY_LABEL_FONT_WEIGHT = "500"
 SUMMARY_LABEL_COLOUR = "#666666"
 SUMMARY_LABEL_MARGIN_BOTTOM = "10px"
 
-SUMMARY_VALUE_FONT_SIZE = "42px"
+SUMMARY_VALUE_FONT_SIZE = "38px"
 SUMMARY_VALUE_FONT_WEIGHT = "700"
 SUMMARY_VALUE_COLOUR = "#222222"
 SUMMARY_VALUE_LINE_HEIGHT = "1.10"
 
-SUMMARY_UNIT_FONT_SIZE = "0.72em"
+SUMMARY_UNIT_FONT_SIZE = "0.55em"
 SUMMARY_UNIT_FONT_WEIGHT = "600"
 SUMMARY_UNIT_COLOUR = "#444444"
 
@@ -404,6 +404,20 @@ def render_summary_card(label: str, value: str) -> None:
             </div>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_summary_cards_row(cards: list[tuple[str, str]]) -> None:
+    cards_html = "".join(
+        f"""<div style="flex:1;background:{SUMMARY_CARD_BACKGROUND};border:1px solid {SUMMARY_CARD_BORDER_COLOUR};border-radius:{SUMMARY_CARD_BORDER_RADIUS};padding:{SUMMARY_CARD_PADDING};min-height:{SUMMARY_CARD_MIN_HEIGHT};box-shadow:{SUMMARY_CARD_SHADOW};display:flex;flex-direction:column;justify-content:flex-start;text-align:center;">
+            <div style="font-size:{SUMMARY_LABEL_FONT_SIZE};font-weight:{SUMMARY_LABEL_FONT_WEIGHT};color:{SUMMARY_LABEL_COLOUR};margin-bottom:{SUMMARY_LABEL_MARGIN_BOTTOM};">{label}</div>
+            <div style="font-size:{SUMMARY_VALUE_FONT_SIZE};font-weight:{SUMMARY_VALUE_FONT_WEIGHT};color:{SUMMARY_VALUE_COLOUR};line-height:{SUMMARY_VALUE_LINE_HEIGHT};">{value}</div>
+        </div>"""
+        for label, value in cards
+    )
+    st.markdown(
+        f'<div style="display:flex;gap:1rem;align-items:stretch;">{cards_html}</div>',
         unsafe_allow_html=True,
     )
 
@@ -3548,41 +3562,19 @@ with st.container(border=True):
                 )
                 _annual_generation_kwh = _gen_result["annual_generation_kwh"]
 
+                _unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>{u}</span>"
+
                 if _prefix == "ref":
-                    _part_l_summary_cols = st.columns(2)
-
-                    with _part_l_summary_cols[0]:
-                        render_summary_card(
-                            "Target photovoltaic capacity",
-                            f"{_part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
-                        )
-
-                    with _part_l_summary_cols[1]:
-                        render_summary_card(
-                            "Estimated annual generation",
-                            f"{_annual_generation_kwh:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/yr</span>",
-                        )
-
+                    render_summary_cards_row([
+                        ("Target photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}"),
+                        ("Estimated annual generation",  f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}"),
+                    ])
                 else:
-                    _part_l_summary_cols = st.columns(3)
-
-                    with _part_l_summary_cols[0]:
-                        render_summary_card(
-                            "Required photovoltaic capacity",
-                            f"{_part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
-                        )
-
-                    with _part_l_summary_cols[1]:
-                        render_summary_card(
-                            "Required PV panel count",
-                            f"{_part_l_required_panel_count:,.0f}",
-                        )
-
-                    with _part_l_summary_cols[2]:
-                        render_summary_card(
-                            "Estimated annual generation",
-                            f"{_annual_generation_kwh:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/yr</span>",
-                        )
+                    render_summary_cards_row([
+                        ("Photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}"),
+                        ("Required PV panel count",        f"{_part_l_required_panel_count:,.0f}"),
+                        ("Estimated annual generation",    f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}"),
+                    ])
 
                 _ref_assumption_rows = [
                     ("Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
