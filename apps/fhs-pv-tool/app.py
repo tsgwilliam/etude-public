@@ -371,51 +371,32 @@ def clear_widget_state_if_not_in_options(
     if key in st.session_state and st.session_state[key] not in valid_options:
         del st.session_state[key]
 
+def _summary_card_html(label: str, value: str) -> str:
+    return (
+        f'<div style="flex:1;background:{SUMMARY_CARD_BACKGROUND};'
+        f'border:1px solid {SUMMARY_CARD_BORDER_COLOUR};'
+        f'border-radius:{SUMMARY_CARD_BORDER_RADIUS};'
+        f'padding:{SUMMARY_CARD_PADDING};'
+        f'min-height:{SUMMARY_CARD_MIN_HEIGHT};'
+        f'box-shadow:{SUMMARY_CARD_SHADOW};'
+        f'display:flex;flex-direction:column;justify-content:center;text-align:center;">'
+        f'<div style="font-size:{SUMMARY_LABEL_FONT_SIZE};font-weight:{SUMMARY_LABEL_FONT_WEIGHT};'
+        f'color:{SUMMARY_LABEL_COLOUR};margin-bottom:{SUMMARY_LABEL_MARGIN_BOTTOM};">{label}</div>'
+        f'<div style="font-size:{SUMMARY_VALUE_FONT_SIZE};font-weight:{SUMMARY_VALUE_FONT_WEIGHT};'
+        f'color:{SUMMARY_VALUE_COLOUR};line-height:{SUMMARY_VALUE_LINE_HEIGHT};">{value}</div>'
+        f'</div>'
+    )
+
+
 def render_summary_card(label: str, value: str) -> None:
     st.markdown(
-        f"""
-        <div style="
-            background: {SUMMARY_CARD_BACKGROUND};
-            border: 1px solid {SUMMARY_CARD_BORDER_COLOUR};
-            border-radius: {SUMMARY_CARD_BORDER_RADIUS};
-            padding: {SUMMARY_CARD_PADDING};
-            min-height: {SUMMARY_CARD_MIN_HEIGHT};
-            box-shadow: {SUMMARY_CARD_SHADOW};
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            text-align: center;
-        ">
-            <div style="
-                font-size: {SUMMARY_LABEL_FONT_SIZE};
-                font-weight: {SUMMARY_LABEL_FONT_WEIGHT};
-                color: {SUMMARY_LABEL_COLOUR};
-                margin-bottom: {SUMMARY_LABEL_MARGIN_BOTTOM};
-            ">
-                {label}
-            </div>
-            <div style="
-                font-size: {SUMMARY_VALUE_FONT_SIZE};
-                font-weight: {SUMMARY_VALUE_FONT_WEIGHT};
-                color: {SUMMARY_VALUE_COLOUR};
-                line-height: {SUMMARY_VALUE_LINE_HEIGHT};
-            ">
-                {value}
-            </div>
-        </div>
-        """,
+        f'<div style="display:flex;gap:1rem;align-items:stretch;">{_summary_card_html(label, value)}</div>',
         unsafe_allow_html=True,
     )
 
 
 def render_summary_cards_row(cards: list[tuple[str, str]]) -> None:
-    cards_html = "".join(
-        f"""<div style="flex:1;background:{SUMMARY_CARD_BACKGROUND};border:1px solid {SUMMARY_CARD_BORDER_COLOUR};border-radius:{SUMMARY_CARD_BORDER_RADIUS};padding:{SUMMARY_CARD_PADDING};min-height:{SUMMARY_CARD_MIN_HEIGHT};box-shadow:{SUMMARY_CARD_SHADOW};display:flex;flex-direction:column;justify-content:flex-start;text-align:center;">
-            <div style="font-size:{SUMMARY_LABEL_FONT_SIZE};font-weight:{SUMMARY_LABEL_FONT_WEIGHT};color:{SUMMARY_LABEL_COLOUR};margin-bottom:{SUMMARY_LABEL_MARGIN_BOTTOM};">{label}</div>
-            <div style="font-size:{SUMMARY_VALUE_FONT_SIZE};font-weight:{SUMMARY_VALUE_FONT_WEIGHT};color:{SUMMARY_VALUE_COLOUR};line-height:{SUMMARY_VALUE_LINE_HEIGHT};">{value}</div>
-        </div>"""
-        for label, value in cards
-    )
+    cards_html = "".join(_summary_card_html(label, value) for label, value in cards)
     st.markdown(
         f'<div style="display:flex;gap:1rem;align-items:stretch;">{cards_html}</div>',
         unsafe_allow_html=True,
@@ -3315,7 +3296,7 @@ with st.container(border=True):
 
     with dwelling_top[0]:
         house_form = st.selectbox(
-            "Type of house (flats not currently supported",
+            "Type of house (flats not currently supported)",
             ["Detached", "Semi-detached", "End terrace", "Mid terrace"],
             index=0,
             key="dwelling_house_form",
@@ -3417,6 +3398,8 @@ with st.container(border=True):
     )
 
     _ref_col, _act_col = st.columns(2)
+
+    _unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>{u}</span>"
 
     for _col, _prefix, _col_label in [
         (_ref_col, "ref", "Part L 2026/FHS Notional Dwelling PV Array"),
@@ -3562,19 +3545,24 @@ with st.container(border=True):
                 )
                 _annual_generation_kwh = _gen_result["annual_generation_kwh"]
 
-                _unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>{u}</span>"
-
                 if _prefix == "ref":
-                    render_summary_cards_row([
-                        ("Target photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}"),
-                        ("Estimated annual generation",  f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}"),
-                    ])
+                    _rc1 = _summary_card_html("Target photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}")
+                    _rc2 = _summary_card_html("Estimated annual generation",  f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}")
+                    st.markdown(
+                        f'<div style="display:flex;flex-direction:column;gap:8px;">{_rc1}{_rc2}</div>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    render_summary_cards_row([
-                        ("Photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}"),
-                        ("Required PV panel count",        f"{_part_l_required_panel_count:,.0f}"),
-                        ("Estimated annual generation",    f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}"),
-                    ])
+                    _ac1 = _summary_card_html("Required photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}")
+                    _ac2 = _summary_card_html("Estimated annual generation",    f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}")
+                    _ac3 = _summary_card_html("Required PV panel count",        f"{_part_l_required_panel_count:,.0f}")
+                    st.markdown(
+                        f'<div style="display:flex;gap:1rem;align-items:stretch;">'
+                        f'<div style="flex:1;display:flex;flex-direction:column;gap:8px;">{_ac1}{_ac2}</div>'
+                        f'{_ac3}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
                 _ref_assumption_rows = [
                     ("Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
@@ -3631,3 +3619,4 @@ with st.container(border=True):
                         hide_index=True,
                         width="stretch",
                     )
+
