@@ -3389,7 +3389,7 @@ with st.container(border=True):
     st.caption(
         "This tool calculates the minimum photovoltaic (PV) capacity required to meet the Part L 2026 target, "
         "based on the building's ground floor area and the performance of the intended array.\n\n"
-        "**Reference** — shows the Part L notional dwelling benchmark: South East orientation, 45° pitch, no shading. "
+        "**Notional** — shows the Part L notional dwelling benchmark: South East orientation, 45° pitch, no shading. "
         "These inputs are fixed and cannot be changed.\n\n"
         "**Actual** — adjust the orientation, pitch and shading to match the planned installation. "
         "The required capacity will update accordingly. "
