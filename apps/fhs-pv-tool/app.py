@@ -3290,7 +3290,7 @@ with st.expander("Terminology", expanded=False):
 # -----------------------------------------------------------------------------
 actual_roof_form = "Duo-pitch"
 
-render_section_title("dwelling_inputs", "House user inputs")
+render_section_title("dwelling_inputs", "House inputs")
 with st.container(border=True):
     dwelling_top = st.columns(3)
 
