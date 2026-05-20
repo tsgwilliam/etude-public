@@ -17,7 +17,7 @@ except ImportError:
     pvwatts = None
 
 
-st.set_page_config(page_title="Part L 2026 Photovoltaic Array Calculator", layout="wide")
+st.set_page_config(page_title="Part L 2026 / FHS Photovoltaic Array Calculator for Houses", layout="wide")
 
 # -----------------------------------------------------------------------------
 # Part L reference assumptions
@@ -3223,7 +3223,7 @@ def build_editor_roof_packing_diagram(editor_state: dict) -> go.Figure:
 header_left, header_right = st.columns([5, 1.5])
 
 with header_left:
-    st.title("Part L 2026 Photovoltaic Array Calculator")
+    st.title("Part L 2026 / FHS Photovoltaic Array Calculator for Houses")
 
 with header_right:
     if LOGO_PATH.exists():
@@ -3241,12 +3241,12 @@ with header_right:
 # -----------------------------------------------------------------------------
 st.markdown(
     """
-Roof-mounted solar PV plays an important role in meeting the Future Homes Standard / Part L 2026 requirements. 
-This early Etude PV tool provides an initial estimate of the photovoltaic array capacity likely to be needed under Part L 2026, including a simplified adjustment for array orientation, pitch and shading.
+Roof-mounted solar PV plays an important role in meeting the Part L 2026 / Future Homes Standard requirements. 
+This early Etude PV tool provides an initial estimate of the photovoltaic array capacity expected to be needed for houses, including a simplified adjustment for array orientation, pitch and shading.
 
 The tool is intended as a simple guide rather than a substitute for full compliance modelling. The target calculation and generation estimates should be checked against the final approved Part L 2026 / SAP 10.3 methodology before being used for compliance decisions.
 
-If you have questions about Part L 2026, SAP 10.3 or the Home Energy Model (HEM), contact Etude at london@etude.co.uk. We can help assess how your design is likely to perform, including energy demand, energy use and renewable energy generation.
+If you have questions about the Future Homes Standard, Part L 2026, SAP 10.3 or the Home Energy Model (HEM), contact Etude at london@etude.co.uk. We can help assess how your design is likely to perform, including energy demand, energy use and renewable energy generation.
 """
 )
 
@@ -3256,51 +3256,28 @@ If you have questions about Part L 2026, SAP 10.3 or the Home Energy Model (HEM)
 with st.expander("Method summary", expanded=False):
     st.markdown(
         """
-This tool is split into four main sections.
+This tool is split into two sections.
 
 **Dwelling inputs** captures the house form, array type and ground floor area. The ground floor area can be entered directly or derived using a simplified geometry helper.
 
-**Part L photovoltaic target** calculates an indicative target photovoltaic capacity from ground floor area and one representative PV assumption: orientation, panel pitch / tilt and shading. The base target is based on 40% of ground floor area at 0.22 kWp/m², then adjusted using the selected orientation, pitch / tilt and shading assumptions.
+**Part L photovoltaic target** calculates the minimum PV capacity required under Part L 2026. The base target is derived from 40% of the ground floor area at 0.22 kWp/m², then adjusted for the expected PV yield at the chosen orientation, pitch and shading. Less favourable orientations or higher shading require a larger installed capacity to deliver an equivalent energy contribution.
 
-The target varies with orientation, pitch and shading because the simplified method adjusts the required installed capacity to reflect expected PV yield. Less favourable orientations or higher shading therefore require a larger PV capacity to provide an equivalent contribution.
+Two columns are shown side by side:
 
-The Part L target check is based on installed photovoltaic capacity in kWp compared with the target capacity. The target panel count is informational only and is based on a standardised module size and efficiency.
+- **Reference** uses the fixed FHS notional dwelling assumptions (South East, 45°, no shading) as the Part L benchmark.
+- **Actual** is user-adjustable. Set the orientation, pitch and shading to match the intended installation to see the corresponding capacity target.
 
-**Photovoltaic array layout** creates the proposed installed PV system that is compared against the target. Two input routes are available:
-
-- **Manual array input**: allows one or more installed arrays to be entered directly by capacity, orientation, pitch / tilt and shading.
-- **Visual roof layout**: uses simplified roof geometry, array zones and optional obstacles to fit panels.
-
-This tool follows a simplified array-based approach: the Part L target is calculated at dwelling level, then the proposed PV system is entered as one or more arrays with their own capacity, orientation, pitch / tilt and shading. This avoids asking users to allocate a theoretical PV area across roof planes.
-
-**Photovoltaic array energy generation** reuses the arrays from the layout section. It can estimate annual generation using either:
-
-- **SAP Appendix U**, using coded monthly irradiance, declination, representative latitude and orientation constants; or
-- **PySAM PVWatts**, with a selected local EPW weather file.
-
-SAP Appendix U is the recommended default for this prototype. PySAM PVWatts is included as an optional weather-file-based comparison route.
-
-The generation result is reported separately in kWh/year. Orientation, pitch / tilt and shading effects for the installed arrays are reflected in the generation section, not in the installed-capacity percentage check.
+Annual generation for each column is estimated using SAP Appendix U, based on monthly surface irradiance for the selected orientation, pitch and shading, scaled by a system performance factor of 0.80.
 """
     )
 
 with st.expander("Current limits", expanded=False):
     st.markdown(
         """
-- The Part L target adjustment is an early simplified implementation using the coded SAP Appendix U-style irradiance assumptions in this tool. It should be checked against the published Part L 2026 / SAP 10.3 methodology before being used for compliance.
-- The target section uses one representative target PV assumption for V1. It does not automatically derive the target from multiple installed arrays.
-- The SAP / weather regions are broad app-level regions and are not yet postcode-district precise.
-- The Appendix U implementation uses representative SAP climate regions rather than a full postcode-to-SAP-region lookup.
-- The roof fit still uses simplified roof reductions rather than a full geometric roof model.
-- Flat roofs use a single roof plane in the editor. For generation, flat-roof panels are currently treated as a simplified 50/50 dual-tilt arrangement.
-- Flat-roof row spacing still needs to be developed properly.
-- Hipped roofs are not included in this simplified method.
-- Array zones are rectangular only and do not yet support polygon drawing.
-- Panels are regenerated from array zones rather than dragged individually.
-- The editor uses native Streamlit controls for movement and resizing.
-- PySAM generation uses locally stored EPW files in `resources/epw/`.
-- SAP Appendix U and PySAM generation are deliberately separated from the installed-capacity target check.
-- Visual roof orientation is entered in degrees for layout flexibility, but SAP Appendix U generation maps this to the nearest SAP orientation band.
+- This is an early simplified implementation. The Part L target calculation should be checked against the published Part L 2026 / SAP 10.3 methodology before being used for compliance purposes.
+- Each column uses a single representative orientation, pitch and shading assumption. The tool does not derive a target from multiple arrays or roof planes.
+- Orientation and pitch inputs are mapped to discrete SAP Appendix U bands rather than treated as continuous values.
+- SAP climate regions are broad and are not yet postcode-precise.
 """
     )
 
@@ -3310,10 +3287,6 @@ with st.expander("Terminology", expanded=False):
 - **PV panel**: a single photovoltaic module/panel.
 - **kWp**: peak DC capacity of the PV array under standard test conditions.
 - **Orientation / azimuth**: direction the PV array faces.
-- **Array type**: simplified route for describing the proposed PV arrangement: single roof plane, dual roof plane, or dual-tilt flat roof.
-- **Dual-tilt**: a flat-roof mounting arrangement with panels split between two opposed low-pitch directions.
-- **EPW**: EnergyPlus Weather file used for hourly weather-based generation modelling.
-- **PySAM PVWatts**: a photovoltaic generation model used to estimate annual and monthly PV output.
 """
     )
 
@@ -3322,7 +3295,7 @@ with st.expander("Terminology", expanded=False):
 # -----------------------------------------------------------------------------
 actual_roof_form = "Duo-pitch"
 
-render_section_title("dwelling_inputs", "Dwelling inputs")
+render_section_title("dwelling_inputs", "House user inputs")
 with st.container(border=True):
     dwelling_top = st.columns(3)
 
@@ -3416,1218 +3389,253 @@ with st.container(border=True):
 # -----------------------------------------------------------------------------
 # Part L target
 # -----------------------------------------------------------------------------
-render_section_title("part_l_target", "Part L photovoltaic target")
+render_section_title("part_l_target", "Part L 2026 / FHS calculated PV requirements")
 with st.container(border=True):
     st.caption(
-        "Indicative photovoltaic array capacity target based on ground floor area and one representative PV orientation, pitch and shading assumption."
-        "Use the target assumptions that best represent the intended installed PV array. "
-        "The detailed layout section below is a separate capacity/layout check."
-        "The target varies with orientation, pitch and shading because less favourable PV assumptions require more installed capacity to provide an equivalent contribution. "
-        "Use the assumptions that best represent the intended installed PV array."
+        "This tool calculates the minimum photovoltaic (PV) capacity required to meet the Part L 2026 target, "
+        "based on the building's ground floor area and the performance of the intended array.\n\n"
+        "**Reference** — shows the Part L notional dwelling benchmark: South East orientation, 45° pitch, no shading. "
+        "These inputs are fixed and cannot be changed.\n\n"
+        "**Actual** — adjust the orientation, pitch and shading to match the planned installation. "
+        "The required capacity will update accordingly. "
+        "A less favourable orientation or greater shading increases the target, because more installed capacity "
+        "is needed to deliver the same energy contribution as the reference case."
     )
 
-    if actual_roof_form == "Flat":
-        target_cols = st.columns(3)
-
-        with target_cols[0]:
-            target_orientation_label = st.selectbox(
-                "Target array orientation",
-                list(SAP_ORIENTATION_OPTIONS.keys()),
-                index=list(SAP_ORIENTATION_OPTIONS.keys()).index("East"),
-                key="part_l_target_orientation",
-            )
-
-        with target_cols[1]:
-            target_physical_tilt_deg = st.selectbox(
-                "Physical panel pitch above horizontal",
-                FLAT_PANEL_PITCH_OPTIONS_DEG,
-                index=FLAT_PANEL_PITCH_OPTIONS_DEG.index(int(DEFAULT_FLAT_PANEL_PITCH_DEG)),
-                format_func=lambda x: f"{x}°",
-                key="part_l_target_flat_panel_pitch",
-            )
-
-            target_tilt_deg = map_actual_pitch_to_sap_pitch(target_physical_tilt_deg)
-
-            st.caption(
-                f"For the simplified target calculation, {target_physical_tilt_deg:.0f}° is mapped to the nearest SAP pitch category: {target_tilt_deg}°."
-            )
-
-        with target_cols[2]:
-            target_shading_label = st.selectbox(
-                "Shading",
-                list(SAP_SHADING_OPTIONS.keys()),
-                index=0,
-                key="part_l_target_shading",
-            )
-
-    else:
-        target_cols = st.columns(3)
-
-        with target_cols[0]:
-            target_orientation_label = st.selectbox(
-                "Target array orientation",
-                list(SAP_ORIENTATION_OPTIONS.keys()),
-                index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
-                key="part_l_target_orientation",
-            )
-
-        with target_cols[1]:
-            target_tilt_deg = st.selectbox(
-                "Panel pitch / tilt (deg)",
-                SAP_TILT_OPTIONS_DEG,
-                index=SAP_TILT_OPTIONS_DEG.index(30),
-                key="part_l_target_tilt",
-            )
-
-        with target_cols[2]:
-            target_shading_label = st.selectbox(
-                "Shading",
-                list(SAP_SHADING_OPTIONS.keys()),
-                index=0,
-                key="part_l_target_shading",
-            )
-
-    target_calculation = calculate_part_l_target(
-        ground_floor_area_m2=ground_floor_area_m2,
-        orientation_label=target_orientation_label,
-        tilt_deg=float(target_tilt_deg),
-        shading_label=target_shading_label,
-        region=PART_L_TARGET_REFERENCE_REGION,
-    )
-
-    nominal_part_l_required_kwp = target_calculation["nominal_required_kwp"]
-    part_l_required_kwp = target_calculation["target_required_kwp"]
-    target_factor = target_calculation["target_factor"]
-    target_reference_pv_area_m2 = target_calculation["reference_pv_area_m2"]
-
-    standardised_module_power_kwp = module_power_kwp_from_inputs(
-        length_m=STANDARDISED_MODULE_LENGTH_M,
-        width_m=STANDARDISED_MODULE_WIDTH_M,
-        efficiency_pct=STANDARDISED_MODULE_EFFICIENCY_PCT,
-    )
-
-    part_l_required_panel_count = (
-        math.ceil(part_l_required_kwp / standardised_module_power_kwp)
-        if standardised_module_power_kwp > 0
-        else 0
-    )
-
-    part_l_summary_cols = st.columns(2)
-
-    with part_l_summary_cols[0]:
-        render_summary_card(
-            "Target photovoltaic capacity",
-            f"{part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
-        )
-
-    with part_l_summary_cols[1]:
-        render_summary_card(
-            "Target panel count",
-            f"{part_l_required_panel_count:,.0f}",
-        )
-
-    target_assumption_rows = [
-        ("Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
-        ("Reference PV area", f"{target_reference_pv_area_m2:.2f} m²"),
-        ("Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
-        ("Base target capacity formula", "Ground floor area × reference PV area fraction × standard panel efficiency density"),
-        ("Base target capacity before orientation / pitch / shading adjustment", f"{nominal_part_l_required_kwp:,.2f} kWp"),
-        ("Target orientation", target_calculation["orientation_label"]),
-        ("Target pitch / tilt used in calculation", f"{target_calculation['tilt_deg']:.0f}°"),
-        ("Target shading", target_calculation["shading_label"]),
-        ("Annual surface irradiation", f"{target_calculation['annual_surface_irradiation_kwh_m2']:.0f} kWh/m²"),
-        ("Reference surface irradiation", f"{target_calculation['reference_surface_irradiation_kwh_m2']:.0f} kWh/m²"),
-        ("Irradiation factor", f"{target_calculation['irradiation_factor']:.3f}"),
-        ("Shading factor", f"{target_calculation['shading_factor']:.2f}"),
-        ("Orientation / pitch / shading factor", f"{target_factor:.3f}"),
-        ("Final target capacity", f"{part_l_required_kwp:,.2f} kWp"),
-        ("Standardised panel size", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} × {STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
-        ("Standardised panel efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
-    ]
-
-    with st.expander("Show target calculation assumptions", expanded=False):
-        st.dataframe(
-            pd.DataFrame(target_assumption_rows, columns=["Assumption", "Value"]),
-            hide_index=True,
-            width="stretch",
-        )
-# -----------------------------------------------------------------------------
-# Building PV layout
-# -----------------------------------------------------------------------------
-render_section_title("building_pv_layout", "Photovoltaic array layout")
-with st.container(border=True):
-    array_input_mode = st.radio(
-        "Array input method",
-        ["Visual roof layout", "Manual array input"],
-        index=0,
-        horizontal=True,
-        key="array_input_mode",
-    )
-
-    # Defaults used by downstream summary sections.
-    plan_length_along_ridge_m = 0.0
-    plan_length_ridge_to_eaves_m = 0.0
-    flat_panel_pitch_deg = float(DEFAULT_FLAT_PANEL_PITCH_DEG)
-    mono_or_duo_azimuth_deg = 180.0
-    mono_or_duo_pitch_deg = 30.0
-    offset_mode_section_2 = "Not applicable"
-    simple_setback_m = 0.0
-    ridge_offset_m = 0.0
-    edge_offset_m = 0.0
-    party_wall_offset_m = 0.0
-    roof_geometry = RoofGeometryBundle(roof_form="Manual input", planes=[])
-    roof_planes = []
-    plane_layouts: dict[str, PanelLayout] = {}
-    max_feasible_panels = 0
-    display_panel_counts_for_planes = []
-    actual_arrays = []
-    actual_array_panel_counts = []
-    installed_panel_count = 0
-    module_length_m = DEFAULT_MODULE_LENGTH_M
-    module_width_m = FIXED_MODULE_WIDTH_M
-    module_efficiency_pct = DEFAULT_MODULE_EFFICIENCY_PCT
-    module_mount_orientation = "Portrait"
-    module_power_kwp = module_power_kwp_from_inputs(
-        length_m=module_length_m,
-        width_m=module_width_m,
-        efficiency_pct=module_efficiency_pct,
-    )
-    module_power_wp = module_power_kwp * 1000.0
-    actual_building_kwp = 0.0
-    actual_kwp_status = "Shortfall"
-    actual_panel_status = "Shortfall"
-
-    editor_metrics = {
-        "total_panels": 0,
-        "fitted_panels": 0,
-        "blocked_panels": 0,
-        "invalid_panels": 0,
-        "fitted_kwp": 0.0,
-        "fitted_panels_by_plane": {},
-    }
-
-    editor_kwp_status = "Shortfall"
-    editor_panel_status = "Shortfall"
-    roof_editor_state = {
-        "schema_version": "0.2.0",
-        "roof_form": "Manual input",
-        "module": {
-            "length_m": module_length_m,
-            "width_m": module_width_m,
-            "efficiency_pct": module_efficiency_pct,
-            "mount_orientation": module_mount_orientation,
-            "flat_panel_pitch_deg": flat_panel_pitch_deg,
-        },
-        "planes": [],
-    }
-
-    if array_input_mode == "Visual roof layout":
-        helper_text = {
-            "Single roof plane": (
-                "Use for mono-pitch roofs, or where PV is only proposed on one roof slope."
-            ),
-            "Dual roof plane": (
-                "Use only where PV is intended on both roof planes. V1 splits panels across both planes rather than filling the better-oriented plane first."
-            ),
-            "Dual-tilt flat roof": (
-                "Use for a simplified flat-roof dual-tilt arrangement."
-            ),
-        }[array_layout_type]
-
-        st.caption(
-            f"Layout: {array_layout_type}. Roof type from dwelling inputs: {actual_roof_form}. {helper_text}"
-        )
-
-        st.markdown("**Roof parameters**")
-
-        if actual_roof_form == "Flat":
-            roof_geom_cols = st.columns(3)
-            with roof_geom_cols[0]:
-                plan_length_along_ridge_m = st.slider(
-                    "Whole roof length in plan (m)",
-                    min_value=2.00,
-                    max_value=40.00,
-                    value=10.00,
-                    step=0.01,
-                    key="flat_roof_length",
-                )
-            with roof_geom_cols[1]:
-                plan_length_ridge_to_eaves_m = st.slider(
-                    "Whole roof width in plan (m)",
-                    min_value=2.00,
-                    max_value=40.00,
-                    value=8.00,
-                    step=0.01,
-                    key="flat_roof_width",
-                )
-            with roof_geom_cols[2]:
-                flat_panel_pitch_deg = st.selectbox(
-                    "Physical panel pitch above horizontal",
-                    FLAT_PANEL_PITCH_OPTIONS_DEG,
-                    index=FLAT_PANEL_PITCH_OPTIONS_DEG.index(int(DEFAULT_FLAT_PANEL_PITCH_DEG)),
-                    format_func=lambda x: f"{x}°",
-                    key="flat_panel_pitch",
-                )
-
-                layout_flat_sap_pitch_deg = map_actual_pitch_to_sap_pitch(flat_panel_pitch_deg)
-
-                st.caption(
-                    f"Used for layout geometry and generation. For SAP-style calculations, "
-                    f"{flat_panel_pitch_deg:.0f}° maps to the nearest SAP pitch category: "
-                    f"{layout_flat_sap_pitch_deg}°."
-                )
-
-            mono_or_duo_azimuth_deg = None
-            mono_or_duo_pitch_deg = 0.0
-
-        else:
-            flat_panel_pitch_deg = float(DEFAULT_FLAT_PANEL_PITCH_DEG)
-
-            roof_geom_cols = st.columns(4)
-            with roof_geom_cols[0]:
-                plan_length_along_ridge_m = st.slider(
-                    "Ridge length in plan (m)",
-                    min_value=2.00,
-                    max_value=40.00,
-                    value=10.00,
-                    step=0.01,
-                    key="pitched_ridge_length",
-                )
-            with roof_geom_cols[1]:
-                plan_length_ridge_to_eaves_m = st.slider(
-                    "Ridge-to-eaves length in plan (m)",
-                    min_value=1.00,
-                    max_value=20.00,
-                    value=4.00,
-                    step=0.01,
-                    key="pitched_eaves_length_plan",
-                )
-            with roof_geom_cols[2]:
-                roof_orientation_label = st.selectbox(
-                    "Primary array plane orientation",
-                    list(SAP_ORIENTATION_OPTIONS.keys()),
-                    index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
-                    key="pitched_orientation",
-                )
-                mono_or_duo_azimuth_deg = SAP_ORIENTATION_OPTIONS[roof_orientation_label]
-
-            with roof_geom_cols[3]:
-                mono_or_duo_pitch_deg = st.slider(
-                    "Roof pitch (degrees)",
-                    min_value=1,
-                    max_value=60,
-                    value=35,
-                    step=1,
-                    key="pitched_pitch",
-                )
-
-        reduction_row = st.columns(4)
-        with reduction_row[0]:
-            offset_mode_section_2 = st.selectbox(
-                "Usable roof area method",
-                ["Simple setback", "Detailed offsets"],
-                index=0,
-                key="actual_offset_mode",
-            )
-
-        if offset_mode_section_2 == "Simple setback":
-            with reduction_row[1]:
-                simple_setback_m = st.number_input(
-                    "Setback around usable array area (m)",
-                    min_value=0.0,
-                    max_value=2.0,
-                    value=DEFAULT_SIMPLE_SETBACK_M,
-                    step=0.05,
-                    key="actual_simple_setback",
-                )
-            with reduction_row[2]:
-                st.empty()
-            with reduction_row[3]:
-                st.empty()
-
-            ridge_offset_m = 0.0
-            edge_offset_m = 0.0
-            party_wall_offset_m = 0.0
-        else:
-            with reduction_row[1]:
-                ridge_offset_m = st.number_input(
-                    "Ridge offset (m)",
-                    min_value=0.0,
-                    max_value=2.0,
-                    value=DEFAULT_RIDGE_OFFSET_M,
-                    step=0.05,
-                    key="actual_ridge_offset",
-                )
-            with reduction_row[2]:
-                edge_offset_m = st.number_input(
-                    "Roof edge offset (m)",
-                    min_value=0.0,
-                    max_value=2.0,
-                    value=DEFAULT_EDGE_OFFSET_M,
-                    step=0.05,
-                    key="actual_edge_offset",
-                )
-            with reduction_row[3]:
-                party_wall_offset_m = st.number_input(
-                    "Party wall offset (m)",
-                    min_value=0.0,
-                    max_value=2.0,
-                    value=DEFAULT_PARTY_WALL_OFFSET_M,
-                    step=0.05,
-                    key="actual_party_wall_offset",
-                )
-
-            simple_setback_m = 0.0
-
-        roof_geometry = build_roof_geometry(
-            roof_form=actual_roof_form,
-            plan_length_along_ridge_m=plan_length_along_ridge_m,
-            plan_length_ridge_to_eaves_m=plan_length_ridge_to_eaves_m,
-            pitch_deg=mono_or_duo_pitch_deg,
-            azimuth_deg=mono_or_duo_azimuth_deg,
-            simple_setback_m=simple_setback_m,
-            ridge_offset_m=ridge_offset_m,
-            edge_offset_m=edge_offset_m,
-            party_wall_offset_m=party_wall_offset_m,
-            house_form=house_form,
-        )
-        roof_planes = roof_geometry.planes
-
-        st.markdown("**Panel parameters**")
-
-        module_cols = st.columns(4)
-        with module_cols[0]:
-            module_length_m = st.select_slider(
-                "Panel length",
-                options=MODULE_LENGTH_OPTIONS_M,
-                value=DEFAULT_MODULE_LENGTH_M,
-                format_func=lambda x: format_module_length_label(x),
-                key="actual_module_length",
-            )
-
-        with module_cols[1]:
-            st.text_input(
-                "Panel width",
-                value=f"{FIXED_MODULE_WIDTH_M * 1000:.0f} mm fixed",
-                disabled=True,
-                key="actual_module_width_display",
-            )
-            module_width_m = FIXED_MODULE_WIDTH_M
-
-        with module_cols[2]:
-            st.text_input(
-                "Panel efficiency",
-                value=f"{DEFAULT_MODULE_EFFICIENCY_PCT:.1f} % assumed",
-                disabled=True,
-                key="actual_module_eff_display",
-            )
-            module_efficiency_pct = DEFAULT_MODULE_EFFICIENCY_PCT
-
-        with module_cols[3]:
-            module_mount_orientation = st.selectbox(
-                "Panel orientation",
-                ["Portrait", "Landscape"],
-                index=0,
-                key="mount_orientation",
-            )
-
-        module_power_kwp = module_power_kwp_from_inputs(
-            length_m=module_length_m,
-            width_m=module_width_m,
-            efficiency_pct=module_efficiency_pct,
-        )
-        module_power_wp = module_power_kwp * 1000.0
-
-        plane_layouts = {}
-        max_feasible_panels = 0
-        for plane in roof_planes:
-            layout = calc_plane_panel_layout(
-                packing_length_m=plane.packing_length_m,
-                packing_depth_m=plane.packing_depth_m,
-                module_length_m=module_length_m,
-                module_width_m=module_width_m,
-                mount_orientation=module_mount_orientation,
-                roof_form=actual_roof_form,
-                flat_panel_pitch_deg=flat_panel_pitch_deg,
-            )
-            plane_layouts[plane.plane_id] = layout
-            max_feasible_panels += layout.count
-
-        actual_arrays = build_actual_arrays_for_generation(
-            roof_form=actual_roof_form,
-            mono_or_duo_azimuth_deg=mono_or_duo_azimuth_deg,
-            mono_or_duo_pitch_deg=mono_or_duo_pitch_deg,
-            flat_panel_pitch_deg=flat_panel_pitch_deg,
-        )
-
-        if max_feasible_panels < 1:
-            st.warning("The usable roof dimensions are too small to fit one module under this dimension-based method.")
-            installed_panel_count = 0
-            actual_array_panel_counts = [0] * len(actual_arrays)
-        else:
-            clear_widget_state_if_outside_range(
-                key="installed_panel_count",
-                min_value=1,
-                max_value=max_feasible_panels,
-            )
-
-            installed_panel_count = st.slider(
-                "Panel count to fit in layout",
-                min_value=1,
-                max_value=max_feasible_panels,
-                value=max_feasible_panels,
-                step=1,
-                key="installed_panel_count",
-            )
-
-            actual_array_panel_counts = allocate_integer_counts(
-                total_count=installed_panel_count,
-                share_fractions=[arr.area_share_fraction for arr in actual_arrays],
-            )
-
-        display_panel_counts_for_planes = get_plane_displayed_panel_counts(
-            roof_form=actual_roof_form,
-            installed_panel_count=installed_panel_count,
-            actual_array_panel_counts=actual_array_panel_counts,
-        )
-
-        default_editor_state = build_roof_editor_state(
-            geometry=roof_geometry,
-            plane_layouts=plane_layouts,
-            displayed_panel_counts=display_panel_counts_for_planes,
-            module_length_m=module_length_m,
-            module_width_m=module_width_m,
-            module_efficiency_pct=module_efficiency_pct,
-            module_mount_orientation=module_mount_orientation,
-            flat_panel_pitch_deg=flat_panel_pitch_deg,
-        )
-
-        editor_signature = get_editor_state_signature(
-            geometry=roof_geometry,
-            plane_layouts=plane_layouts,
-            displayed_panel_counts=display_panel_counts_for_planes,
-            module_length_m=module_length_m,
-            module_width_m=module_width_m,
-            module_efficiency_pct=module_efficiency_pct,
-            module_mount_orientation=module_mount_orientation,
-            flat_panel_pitch_deg=flat_panel_pitch_deg,
-        )
-
-        if (
-            "section2_editor_source_state" not in st.session_state
-            or "section2_editor_signature" not in st.session_state
-            or st.session_state["section2_editor_signature"] != editor_signature
-        ):
-            st.session_state["section2_editor_source_state"] = deepcopy(default_editor_state)
-            st.session_state["section2_editor_signature"] = editor_signature
-
-        source_state = deepcopy(st.session_state["section2_editor_source_state"])
-
-        st.markdown("**Interactive array layout editor (beta)**")
-        st.caption(
-            "Use array zones to define where panels should be fitted. Leave the default zone unchanged if the whole usable area is available. "
-            "Optional obstacles can remove unavailable areas. Obstacle handling is approximate, so check the resulting panel count."
-        )
-
-        source_state = build_visual_obstacle_editor(source_state)
-        st.session_state["section2_editor_source_state"] = deepcopy(source_state)
-
-        roof_editor_state = deepcopy(source_state)
-        roof_editor_state = apply_obstacles_to_pv_zones(roof_editor_state)
-        roof_editor_state = regenerate_panels_from_pv_zones(roof_editor_state)
-        roof_editor_state = validate_editor_state(roof_editor_state)
-
-        st.markdown("**Array layout preview**")
-        st.plotly_chart(
-            build_editor_roof_packing_diagram(roof_editor_state),
-            theme=None,
-            width="stretch",
-            key="section2_editor_chart",
-        )
-
-        editor_metrics = get_editor_metrics(
-            editor_state=roof_editor_state,
-            module_power_kwp=module_power_kwp,
-        )
-
-        visual_panel_counts_by_plane = editor_metrics.get("fitted_panels_by_plane", {})
-        actual_array_panel_counts = [
-            int(visual_panel_counts_by_plane.get(f"plane_{idx}", 0))
-            for idx in range(1, len(actual_arrays) + 1)
-        ]
-
-        # For flat roofs, one visual plane maps onto two opposed dual-tilt generation arrays.
-        # This is a simplified generation assumption, not a target-area allocation step.
-        if actual_roof_form == "Flat":
-            actual_array_panel_counts = allocate_integer_counts(
-                total_count=int(editor_metrics["fitted_panels"]),
-                share_fractions=[arr.area_share_fraction for arr in actual_arrays],
-            )
-
-        pv_arrays = build_pv_arrays_from_visual_layout(
-            actual_arrays=actual_arrays,
-            actual_array_panel_counts=actual_array_panel_counts,
-            module_power_kwp=module_power_kwp,
-            source_label="Visual roof layout",
-        )
-
-        actual_building_kwp = get_total_array_capacity_kwp(pv_arrays)
-        actual_kwp_status = get_array_capacity_status(pv_arrays, part_l_required_kwp)
-        actual_panel_status = "Informative only"
-
-        editor_kwp_status = actual_kwp_status
-        editor_panel_status = "Informative only"
-    else:
-        st.markdown("**Manual array input**")
-        st.caption(
-            "Use this route where the installed PV array capacity, orientation and tilt are already known. "
-            "Arrays with 0.00 kWp are ignored. Panel count is estimated from the standardised module size for information only."
-        )
-
-        default_manual_array_count = {
-            "Mono-pitch": 1,
-            "Duo-pitch": 2,
-            "Flat": 2,
-        }.get(actual_roof_form, 1)
-        
-        manual_array_count = st.number_input(
-            "Number of PV arrays",
-            min_value=1,
-            max_value=8,
-            value=default_manual_array_count,
-            step=1,
-            key="manual_array_count",
-        )
-
-        manual_array_inputs = []
-
-        for idx in range(1, int(manual_array_count) + 1):
+    _ref_col, _act_col = st.columns(2)
+
+    for _col, _prefix, _col_label in [
+        (_ref_col, "ref", "Part L 2026/FHS Notional Dwelling PV Array"),
+        (_act_col, "act", "Input Actual PV Array Parameters"),
+    ]:
+        with _col:
             with st.container(border=True):
-                st.markdown(f"**Array {idx}**")
+                st.markdown(f"**{_col_label}**")
 
-                manual_cols = st.columns([1.4, 1.0, 1.0, 1.0, 1.0])
+                if _prefix == "ref":
+                    _target_input_cols = st.columns(3)
 
-                with manual_cols[0]:
-                    name = st.text_input(
-                        "Array name",
-                        value=f"Array {idx}",
-                        key=f"manual_array_name_{idx}",
-                    )
+                    with _target_input_cols[0]:
+                        _target_orientation_label = st.selectbox(
+                            "Target array orientation",
+                            list(SAP_ORIENTATION_OPTIONS.keys()),
+                            index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South East"),
+                            key=f"{_prefix}_part_l_target_orientation",
+                            disabled=True,
+                        )
 
-                with manual_cols[1]:
-                    capacity_kwp = st.number_input(
-                        "Capacity (kWp)",
-                        min_value=0.00,
-                        max_value=100.00,
-                        value=2.50 if idx == 1 else 0.00,
-                        step=0.10,
-                        key=f"manual_array_capacity_{idx}",
-                    )
+                    with _target_input_cols[1]:
+                        _target_tilt_deg = st.selectbox(
+                            "Panel pitch / tilt (deg)",
+                            SAP_TILT_OPTIONS_DEG,
+                            index=SAP_TILT_OPTIONS_DEG.index(45),
+                            key=f"{_prefix}_part_l_target_tilt",
+                            disabled=True,
+                        )
 
-                with manual_cols[2]:
-                    orientation_label = st.selectbox(
-                        "Orientation",
-                        list(SAP_ORIENTATION_OPTIONS.keys()),
-                        index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
-                        key=f"manual_array_orientation_{idx}",
-                    )
+                    with _target_input_cols[2]:
+                        _target_shading_label = st.selectbox(
+                            "Shading",
+                            list(SAP_SHADING_OPTIONS.keys()),
+                            index=list(SAP_SHADING_OPTIONS.keys()).index("None or very little"),
+                            key=f"{_prefix}_part_l_target_shading",
+                            disabled=True,
+                        )
 
-                with manual_cols[3]:
-                    tilt_deg = st.selectbox(
-                        "Panel pitch / tilt (deg)",
-                        SAP_TILT_OPTIONS_DEG,
-                        index=SAP_TILT_OPTIONS_DEG.index(30),
-                        key=f"manual_array_tilt_{idx}",
-                    )
+                elif actual_roof_form == "Flat":
+                    _target_input_cols = st.columns(3)
 
-                with manual_cols[4]:
-                    shading_label = st.selectbox(
-                        "Shading",
-                        list(SAP_SHADING_OPTIONS.keys()),
-                        index=0,
-                        key=f"manual_array_shading_{idx}",
-                    )
+                    with _target_input_cols[0]:
+                        _target_orientation_label = st.selectbox(
+                            "Target array orientation",
+                            list(SAP_ORIENTATION_OPTIONS.keys()),
+                            index=list(SAP_ORIENTATION_OPTIONS.keys()).index("East"),
+                            key=f"{_prefix}_part_l_target_orientation",
+                        )
 
-                manual_array_inputs.append(
-                    {
-                        "name": name,
-                        "capacity_kwp": capacity_kwp,
-                        "orientation_label": orientation_label,
-                        "tilt_deg": tilt_deg,
-                        "shading_label": shading_label,
-                    }
+                    with _target_input_cols[1]:
+                        _target_physical_tilt_deg = st.selectbox(
+                            "Physical panel pitch above horizontal",
+                            FLAT_PANEL_PITCH_OPTIONS_DEG,
+                            index=FLAT_PANEL_PITCH_OPTIONS_DEG.index(int(DEFAULT_FLAT_PANEL_PITCH_DEG)),
+                            format_func=lambda x: f"{x}°",
+                            key=f"{_prefix}_part_l_target_flat_panel_pitch",
+                        )
+
+                        _target_tilt_deg = map_actual_pitch_to_sap_pitch(_target_physical_tilt_deg)
+
+                        st.caption(
+                            f"For the simplified target calculation, {_target_physical_tilt_deg:.0f}° is mapped to the nearest SAP pitch category: {_target_tilt_deg}°."
+                        )
+
+                    with _target_input_cols[2]:
+                        _target_shading_label = st.selectbox(
+                            "Shading",
+                            list(SAP_SHADING_OPTIONS.keys()),
+                            index=0,
+                            key=f"{_prefix}_part_l_target_shading",
+                        )
+
+                else:
+                    _target_input_cols = st.columns(3)
+
+                    with _target_input_cols[0]:
+                        _target_orientation_label = st.selectbox(
+                            "Target array orientation",
+                            list(SAP_ORIENTATION_OPTIONS.keys()),
+                            index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
+                            key=f"{_prefix}_part_l_target_orientation",
+                        )
+
+                    with _target_input_cols[1]:
+                        _target_tilt_deg = st.selectbox(
+                            "Panel pitch / tilt (deg)",
+                            SAP_TILT_OPTIONS_DEG,
+                            index=SAP_TILT_OPTIONS_DEG.index(30),
+                            key=f"{_prefix}_part_l_target_tilt",
+                        )
+
+                    with _target_input_cols[2]:
+                        _target_shading_label = st.selectbox(
+                            "Shading",
+                            list(SAP_SHADING_OPTIONS.keys()),
+                            index=0,
+                            key=f"{_prefix}_part_l_target_shading",
+                        )
+
+                _target_calculation = calculate_part_l_target(
+                    ground_floor_area_m2=ground_floor_area_m2,
+                    orientation_label=_target_orientation_label,
+                    tilt_deg=float(_target_tilt_deg),
+                    shading_label=_target_shading_label,
+                    region=PART_L_TARGET_REFERENCE_REGION,
                 )
 
-        pv_arrays = build_pv_arrays_from_manual_inputs(
-            manual_array_inputs=manual_array_inputs,
-            standardised_module_power_kwp=standardised_module_power_kwp,
-        )
+                _nominal_part_l_required_kwp = _target_calculation["nominal_required_kwp"]
+                _part_l_required_kwp = _target_calculation["target_required_kwp"]
+                _target_factor = _target_calculation["target_factor"]
+                _target_reference_pv_area_m2 = _target_calculation["reference_pv_area_m2"]
 
-        installed_panel_count = get_total_array_panel_count(pv_arrays)
-        actual_building_kwp = get_total_array_capacity_kwp(pv_arrays)
-        actual_kwp_status = get_array_capacity_status(pv_arrays, part_l_required_kwp)
-        actual_panel_status = "Informative only"
+                _standardised_module_power_kwp = module_power_kwp_from_inputs(
+                    length_m=STANDARDISED_MODULE_LENGTH_M,
+                    width_m=STANDARDISED_MODULE_WIDTH_M,
+                    efficiency_pct=STANDARDISED_MODULE_EFFICIENCY_PCT,
+                )
 
-        editor_metrics = {
-            "total_panels": installed_panel_count,
-            "fitted_panels": installed_panel_count,
-            "blocked_panels": 0,
-            "invalid_panels": 0,
-            "fitted_kwp": actual_building_kwp,
-            "fitted_panels_by_plane": {},
-        }
+                _part_l_required_panel_count = (
+                    math.ceil(_part_l_required_kwp / _standardised_module_power_kwp)
+                    if _standardised_module_power_kwp > 0
+                    else 0
+                )
 
-        editor_kwp_status = actual_kwp_status
-        editor_panel_status = "Informative only"
+                _gen_capacity_kwp = (
+                    _part_l_required_panel_count * _standardised_module_power_kwp
+                    if _prefix == "act"
+                    else _nominal_part_l_required_kwp
+                )
+                _pv_array_for_gen = PvArray(
+                    name="Target",
+                    capacity_kwp=_gen_capacity_kwp,
+                    azimuth_deg=SAP_ORIENTATION_OPTIONS.get(_target_orientation_label, 180.0),
+                    tilt_deg=float(_target_tilt_deg),
+                    shading_factor=SAP_SHADING_OPTIONS.get(_target_shading_label, 1.0),
+                    panel_count=None,
+                    source="Target area",
+                )
+                _gen_result = calculate_sap_appendix_u_array_generation(
+                    array=_pv_array_for_gen,
+                    region=PART_L_TARGET_REFERENCE_REGION,
+                )
+                _annual_generation_kwh = _gen_result["annual_generation_kwh"]
 
-    pv_arrays = get_enabled_pv_arrays(pv_arrays)
-    part_l_capacity_progress_pct = get_part_l_capacity_progress_pct(
-        pv_arrays=pv_arrays,
-        required_kwp=part_l_required_kwp,
-    )
+                if _prefix == "ref":
+                    _part_l_summary_cols = st.columns(2)
 
-    if SHOW_ARRAY_PROGRESS_AND_SUMMARY:
-        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                    with _part_l_summary_cols[0]:
+                        render_summary_card(
+                            "Target photovoltaic capacity",
+                            f"{_part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
+                        )
 
-        editor_summary_cols = st.columns(4)
+                    with _part_l_summary_cols[1]:
+                        render_summary_card(
+                            "Estimated annual generation",
+                            f"{_annual_generation_kwh:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/yr</span>",
+                        )
 
-        with editor_summary_cols[0]:
-            render_summary_card(
-                "Installed array capacity",
-                f"{get_total_array_capacity_kwp(pv_arrays):,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
-            )
+                else:
+                    _part_l_summary_cols = st.columns(3)
 
-        with editor_summary_cols[1]:
-            render_summary_card(
-                "Installed capacity vs target",
-                f"{part_l_capacity_progress_pct:,.0f}<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>%</span>",
-            )
+                    with _part_l_summary_cols[0]:
+                        render_summary_card(
+                            "Required photovoltaic capacity",
+                            f"{_part_l_required_kwp:,.2f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWp</span>",
+                        )
 
-        with editor_summary_cols[2]:
-            summary_count_label = (
-                "Panels fitted"
-                if array_input_mode == "Visual roof layout"
-                else "Estimated panel count"
-            )
-            render_summary_card(
-                summary_count_label,
-                f"{get_total_array_panel_count(pv_arrays)}",
-            )
+                    with _part_l_summary_cols[1]:
+                        render_summary_card(
+                            "Required PV panel count",
+                            f"{_part_l_required_panel_count:,.0f}",
+                        )
 
-        with editor_summary_cols[3]:
-            render_summary_card(
-                "Panels blocked / invalid",
-                f"{editor_metrics['blocked_panels'] + editor_metrics['invalid_panels']}",
-            )
+                    with _part_l_summary_cols[2]:
+                        render_summary_card(
+                            "Estimated annual generation",
+                            f"{_annual_generation_kwh:,.0f} <span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>kWh/yr</span>",
+                        )
 
-        st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                _ref_assumption_rows = [
+                    ("Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
+                    ("Reference PV area", f"{_target_reference_pv_area_m2:.2f} m²"),
+                    ("Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
+                    ("Base target capacity formula", "Ground floor area × reference PV area fraction × standard panel efficiency density"),
+                    ("Base target capacity before orientation / pitch / shading adjustment", f"{_nominal_part_l_required_kwp:,.2f} kWp"),
+                    ("Target orientation", _target_calculation["orientation_label"]),
+                    ("Target pitch / tilt used in calculation", f"{_target_calculation['tilt_deg']:.0f}°"),
+                    ("Target shading", _target_calculation["shading_label"]),
+                    ("Reference surface irradiation", f"{_target_calculation['reference_surface_irradiation_kwh_m2']:.0f} kWh/m²"),
+                    ("Irradiation factor", f"{_target_calculation['irradiation_factor']:.3f}"),
+                    ("Shading factor", f"{_target_calculation['shading_factor']:.2f}"),
+                    ("Orientation / pitch / shading factor", f"{_target_factor:.3f}"),
+                    ("Final target capacity", f"{_part_l_required_kwp:,.2f} kWp"),
+                    ("Generation capacity basis", "Area-based"),
+                    ("Generation capacity used", f"{_gen_capacity_kwp:,.2f} kWp"),
+                    ("Generation method", "SAP Appendix U"),
+                    ("Generation region", PART_L_TARGET_REFERENCE_REGION),
+                    ("System performance factor", f"{0.80:.2f}"),
+                    ("Specific yield", f"{_annual_generation_kwh / _gen_capacity_kwp:,.0f} kWh/kWp/yr"),
+                    ("Estimated annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
+                ]
 
-        capacity_progress_fig = build_part_l_capacity_progress_chart(
-            required_kwp=part_l_required_kwp,
-            actual_kwp=get_total_array_capacity_kwp(pv_arrays),
-        )
+                _act_assumption_rows = [
+                    ("Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
+                    ("Target orientation", _target_calculation["orientation_label"]),
+                    ("Target pitch / tilt used in calculation", f"{_target_calculation['tilt_deg']:.0f}°"),
+                    ("Target shading", _target_calculation["shading_label"]),
+                    ("Annual surface irradiation", f"{_target_calculation['annual_surface_irradiation_kwh_m2']:.0f} kWh/m²"),
+                    ("Irradiation factor", f"{_target_calculation['irradiation_factor']:.3f}"),
+                    ("Shading factor", f"{_target_calculation['shading_factor']:.2f}"),
+                    ("Orientation / pitch / shading factor", f"{_target_factor:.3f}"),
+                    ("Final target capacity", f"{_part_l_required_kwp:,.2f} kWp"),
+                    ("Standardised panel size", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} × {STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
+                    ("Standardised panel efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
+                    ("Target panel count", f"{_part_l_required_panel_count:,.0f}"),
+                    ("Generation capacity basis", "Target panel count"),
+                    ("Generation capacity used", f"{_gen_capacity_kwp:,.2f} kWp"),
+                    ("Generation method", "SAP Appendix U"),
+                    ("Generation region", PART_L_TARGET_REFERENCE_REGION),
+                    ("System performance factor", f"{0.80:.2f}"),
+                    ("Specific yield", f"{_annual_generation_kwh / _gen_capacity_kwp:,.0f} kWh/kWp/yr"),
+                    ("Estimated annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
+                ]
 
-        st.plotly_chart(
-            capacity_progress_fig,
-            theme=None,
-            width="stretch",
-            key="part_l_capacity_progress_chart",
-        )
+                _col_assumption_rows = _ref_assumption_rows if _prefix == "ref" else _act_assumption_rows
 
-        st.markdown("**Array summary passed to generation calculation**")
-        array_summary_rows = build_array_summary_rows(pv_arrays)
-        if not array_summary_rows:
-            array_summary_rows = build_empty_pv_array_summary_rows()
-        st.dataframe(pd.DataFrame(array_summary_rows), hide_index=True, width="stretch")
+                st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# Photovoltaic array energy generation
-# -----------------------------------------------------------------------------
-render_section_title("generation_estimate", "Photovoltaic array energy generation")
-with st.container(border=True):
-    st.caption(
-        "This section estimates annual electricity generation in kWh from the PV arrays passed from the layout section. "
-        "SAP Appendix U is the recommended default for this prototype. PySAM PVWatts is optional and intended for weather-file-based comparison only."
-    )
-    
-
-    generation_method = st.radio(
-        "Generation calculation method",
-        ["SAP Appendix U", "PySAM PVWatts (Optional)"],
-        index=1,
-        horizontal=True,
-        key="generation_method",
-    )
-    enabled_generation_arrays = get_enabled_pv_arrays(pv_arrays)
-    total_generation_capacity_kwp = get_total_array_capacity_kwp(enabled_generation_arrays)
-    total_generation_panel_count = get_total_array_panel_count(enabled_generation_arrays)
-
-    pysam_result = None
-    pysam_message = None
-    selected_epw = None
-
-    sap_appendix_u_result = None
-    sap_appendix_u_message = None
-    sap_appendix_u_system_performance_factor = 0.80
-    generation_result = None
-    generation_message = None
-    generation_result_annual_kwh = 0.0
-
-    if generation_method == "PySAM PVWatts":
-        epw_lookup = get_available_epw_files(EPW_DIRECTORY)
-        epw_labels = ["None"] + list(epw_lookup.keys())
-
-        pysam_input_cols = st.columns(2)
-        with pysam_input_cols[0]:
-            epw_label = st.selectbox(
-                "Weather file for energy generation estimate (EPW)",
-                epw_labels,
-                index=0,
-                key="pysam_epw_label",
-            )
-        with pysam_input_cols[1]:
-            st.text_input(
-                "Array definitions source",
-                value="Inherited from photovoltaic array layout",
-                disabled=True,
-                key="pysam_array_source_display",
-            )
-
-        if total_generation_capacity_kwp <= 0:
-            pysam_message = "No PV array capacity has been defined in the photovoltaic array layout section."
-        elif epw_label == "None":
-            pysam_message = "No EPW selected."
-        elif pvwatts is None:
-            pysam_message = get_pysam_missing_message()
-        else:
-            selected_epw = epw_lookup[epw_label]
-            monthly_total = [0.0] * 12
-            annual_total = 0.0
-
-            try:
-                pysam_array_rows = []
-
-                for array in enabled_generation_arrays:
-                    if array.capacity_kwp <= 0:
-                        continue
-
-                    arr_result = run_pysam_pvwatts(
-                        system_capacity_kw=array.capacity_kwp,
-                        weather_file=selected_epw,
-                        tilt_deg=array.tilt_deg,
-                        azimuth_deg=array.azimuth_deg,
+                with st.expander("Show calculation assumptions", expanded=False):
+                    st.dataframe(
+                        pd.DataFrame(_col_assumption_rows, columns=["Assumption", "Value"]),
+                        hide_index=True,
+                        width="stretch",
                     )
-
-                    shading_factor = max(min(float(array.shading_factor), 1.0), 0.0)
-                    shaded_annual_ac_kwh = arr_result["annual_ac_kwh"] * shading_factor
-                    shaded_monthly_ac_kwh = [
-                        month_value * shading_factor
-                        for month_value in arr_result["monthly_ac_kwh"]
-                    ]
-
-                    annual_total += shaded_annual_ac_kwh
-                    monthly_total = [
-                        existing + new
-                        for existing, new in zip(monthly_total, shaded_monthly_ac_kwh)
-                    ]
-
-                    pysam_array_rows.append(
-                        {
-                            "Array": array.name,
-                            "Input source": array.source,
-                            "Azimuth (deg)": f"{array.azimuth_deg:.0f}",
-                            "Orientation": get_orientation_label_from_azimuth(array.azimuth_deg),
-                            "Tilt / panel pitch (deg)": f"{array.tilt_deg:.0f}",
-                            "Panel count": "" if array.panel_count is None else f"{array.panel_count}",
-                            "System capacity (kWp)": f"{array.capacity_kwp:.2f}",
-                            "Shading factor": f"{shading_factor:.2f}",
-                            "Annual AC generation before shading (kWh/a)": f"{arr_result['annual_ac_kwh']:.0f}",
-                            "Annual AC generation after shading (kWh/a)": f"{shaded_annual_ac_kwh:.0f}",
-                        }
-                    )
-
-                pysam_result = {
-                    "method": "PySAM PVWatts v8",
-                    "annual_ac_kwh": annual_total,
-                    "monthly_ac_kwh": monthly_total,
-                    "array_rows": pysam_array_rows,
-                }
-
-                generation_result = pysam_result
-                generation_result_annual_kwh = annual_total
-
-            except Exception as exc:
-                pysam_message = f"PySAM run failed: {exc}"
-
-        if pysam_result is not None:
-            annual_gen_df = pd.DataFrame(
-                [
-                    ("Generation methodology", "PySAM PVWatts v8"),
-                    ("Radiation / weather source", selected_epw.name if selected_epw else ""),
-                    ("Selected EPW", epw_label),
-                    ("Array source", array_input_mode),
-                    ("Estimated / fitted panel count", f"{total_generation_panel_count}"),
-                    ("Total system capacity used", f"{total_generation_capacity_kwp:,.2f} kWp"),
-                    ("Annual AC generation", f"{pysam_result['annual_ac_kwh']:,.0f} kWh/a"),
-                ],
-                columns=["Metric", "Value"],
-            )
-            st.dataframe(annual_gen_df, hide_index=True, width="stretch")
-
-            st.dataframe(
-                pd.DataFrame(pysam_result["array_rows"]),
-                hide_index=True,
-                width="stretch",
-            )
-
-            pysam_assumptions_df = pd.DataFrame(
-                [
-                    ("Performance / system losses", f"{PYSAM_SYSTEM_LOSSES_PCT:.1f} %"),
-                    ("DC/AC ratio", f"{PYSAM_DC_AC_RATIO:.2f}"),
-                    ("Array type", "Fixed roof mount"),
-                    ("Module type", "Standard"),
-                    ("Ground coverage ratio", f"{PYSAM_GCR:.2f}"),
-                    ("Shading treatment", "Array-level shading factor applied to PySAM AC output"),
-                ],
-                columns=["Assumption", "Value"],
-            )
-            st.dataframe(pysam_assumptions_df, hide_index=True, width="stretch")
-
-            monthly_df = pd.DataFrame(
-                {
-                    "Month": SAP_APPENDIX_U_MONTHS,
-                    "AC generation (kWh)": [round(v, 1) for v in pysam_result["monthly_ac_kwh"]],
-                }
-            )
-            st.dataframe(monthly_df, hide_index=True, width="stretch")
-        else:
-            generation_message = pysam_message or "Annual generation not available."
-            st.info(generation_message)
-
-    else:
-        sap_cols = st.columns(3)
-
-        with sap_cols[0]:
-            sap_appendix_u_region_options = list(SAP_APPENDIX_U_REGION_DATA.keys())
-
-            sap_appendix_u_region = st.selectbox(
-                "SAP Appendix U region",
-                sap_appendix_u_region_options,
-                index=sap_appendix_u_region_options.index("UK average"),
-                key="sap_appendix_u_region",
-            )
-
-        with sap_cols[1]:
-                sap_appendix_u_system_performance_factor = st.number_input(
-                    "System performance factor",
-                    min_value=0.50,
-                    max_value=1.00,
-                    value=0.80,
-                    step=0.01,
-                    key="sap_appendix_u_system_performance_factor",
-                )
-
-                st.caption(
-                    "SAP-style generation uses a total system performance factor, not inverter efficiency alone. "
-                    "The default 0.80 represents approximately 20% total system losses."
-                )
-
-        with sap_cols[2]:
-            st.text_input(
-                "Array definitions source",
-                value="Inherited from photovoltaic array layout",
-                disabled=True,
-                key="sap_appendix_u_array_source_display",
-            )
-
-        if total_generation_capacity_kwp <= 0:
-            sap_appendix_u_message = "No PV array capacity has been defined in the photovoltaic array layout section."
-        elif not has_appendix_u_table_data(sap_appendix_u_region):
-            sap_appendix_u_message = (
-                f"No Appendix U region data has been entered for '{sap_appendix_u_region}'. "
-                "Add the region to SAP_APPENDIX_U_REGION_DATA before using this method."
-            )
-        else:
-            try:
-                sap_appendix_u_result = calculate_sap_appendix_u_generation(
-                    pv_arrays=enabled_generation_arrays,
-                    region=sap_appendix_u_region,
-                    system_performance_factor=float(sap_appendix_u_system_performance_factor),
-                )
-
-                generation_result = sap_appendix_u_result
-                generation_result_annual_kwh = sap_appendix_u_result["annual_generation_kwh"]
-
-            except Exception as exc:
-                sap_appendix_u_message = f"SAP Appendix U calculation failed: {exc}"
-
-        if sap_appendix_u_result is not None:
-            sap_summary_df = pd.DataFrame(
-                [
-                    ("Generation methodology", "SAP Appendix U"),
-                    ("SAP Appendix U region", sap_appendix_u_result["region"]),
-                    ("Array source", array_input_mode),
-                    ("Total declared / fitted panel count", f"{total_generation_panel_count}"),
-                    ("Total system capacity used", f"{total_generation_capacity_kwp:,.2f} kWp"),
-                    ("System performance factor", f"{sap_appendix_u_system_performance_factor:.2f}"),
-                    ("Annual generation", f"{sap_appendix_u_result['annual_generation_kwh']:,.0f} kWh/a"),
-                ],
-                columns=["Metric", "Value"],
-            )
-            st.dataframe(sap_summary_df, hide_index=True, width="stretch")
-
-            st.dataframe(
-                pd.DataFrame(build_sap_appendix_u_array_rows(sap_appendix_u_result["array_results"])),
-                hide_index=True,
-                width="stretch",
-            )
-
-            monthly_df = pd.DataFrame(
-                {
-                    "Month": SAP_APPENDIX_U_MONTHS,
-                    "Generation (kWh)": [
-                        round(v, 1)
-                        for v in sap_appendix_u_result["monthly_generation_kwh"]
-                    ],
-                }
-            )
-            st.dataframe(monthly_df, hide_index=True, width="stretch")
-        else:
-            generation_message = sap_appendix_u_message or "Annual generation not available."
-            st.info(generation_message)
-
-    if generation_result is None:
-        generation_result_annual_kwh = 0.0
-st.divider()
-
-# -----------------------------------------------------------------------------
-# Bottom summary tables
-# -----------------------------------------------------------------------------
-total_gross_roof_area_m2 = sum(plane.gross_area_m2 for plane in roof_planes)
-usable_available_pv_area_m2 = sum(plane.usable_area_m2 for plane in roof_planes)
-other_reduction_area_m2 = max(total_gross_roof_area_m2 - usable_available_pv_area_m2, 0.0)
-
-display_panel_counts_for_planes = get_plane_displayed_panel_counts(
-    roof_form=actual_roof_form,
-    installed_panel_count=installed_panel_count,
-    actual_array_panel_counts=actual_array_panel_counts,
-)
-
-selected_epw_label = "Not applicable"
-selected_epw_file = "Not applicable"
-sap_appendix_u_region_summary = "Not applicable"
-sap_appendix_u_inverter_efficiency_summary = "Not applicable"
-
-if generation_method == "PySAM PVWatts":
-    selected_epw_label = locals().get("epw_label", "None")
-    selected_epw_file = selected_epw.name if selected_epw is not None else "Not selected"
-elif generation_method == "SAP Appendix U":
-    sap_appendix_u_region_summary = locals().get("sap_appendix_u_region", "Not selected")
-    sap_appendix_u_inverter_efficiency_summary = f"{float(sap_appendix_u_system_performance_factor):.2f}"
-
-if generation_result is not None:
-    generation_status_text = "Calculated"
-    generation_annual_kwh_text = f"{generation_result_annual_kwh:,.0f} kWh/a"
-else:
-    generation_status_text = generation_message or "Annual generation not available."
-    generation_annual_kwh_text = "Not calculated"
-
-user_inputs_rows = [
-    ("Dwelling inputs", "House form", house_form),
-    ("Dwelling inputs", "Roof type", actual_roof_form),
-    ("Dwelling inputs", "Ground floor area method", gfa_input_mode),
-    ("Dwelling inputs", "Ground floor area", f"{ground_floor_area_m2:,.2f} m²"),
-    ("Dwelling inputs", "Ground floor area source", gfa_source_text),
-    ("Part L photovoltaic target", "Target orientation", target_calculation["orientation_label"]),
-    ("Part L photovoltaic target", "Target pitch / tilt", f"{target_calculation['tilt_deg']:.0f}°"),
-    ("Part L photovoltaic target", "Target shading", target_calculation["shading_label"]),
-    ("Part L photovoltaic target", "Target photovoltaic capacity", f"{part_l_required_kwp:,.2f} kWp"),
-    ("Part L photovoltaic target", "Target panel count", f"{part_l_required_panel_count}"),
-    ("Photovoltaic array layout", "Array input method", array_input_mode),
-    ("Photovoltaic array layout", "Length along ridge / whole roof length in plan", f"{plan_length_along_ridge_m:,.2f} m"),
-    ("Photovoltaic array layout", "Ridge-to-eaves / whole roof width in plan", f"{plan_length_ridge_to_eaves_m:,.2f} m"),
-    ("Photovoltaic array layout", "Usable roof area method", offset_mode_section_2),
-]
-
-if actual_roof_form == "Flat":
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Flat panel pitch above horizontal",
-            f"{flat_panel_pitch_deg:.0f}°",
-        )
-    )
-elif actual_roof_form in {"Mono-pitch", "Duo-pitch"}:
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Roof plane azimuth",
-            f"{mono_or_duo_azimuth_deg:.0f}°",
-        )
-    )
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Roof pitch",
-            f"{mono_or_duo_pitch_deg:.0f}°",
-        )
-    )
-else:
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Roof geometry",
-            "Not applicable for manual array input",
-        )
-    )
-
-if offset_mode_section_2 == "Simple setback":
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Setback around usable array area",
-            f"{simple_setback_m:.2f} m",
-        )
-    )
-elif offset_mode_section_2 == "Detailed offsets":
-    user_inputs_rows.append(("Photovoltaic array layout", "Ridge offset", f"{ridge_offset_m:.2f} m"))
-    user_inputs_rows.append(("Photovoltaic array layout", "Roof edge offset", f"{edge_offset_m:.2f} m"))
-    user_inputs_rows.append(("Photovoltaic array layout", "Party wall offset", f"{party_wall_offset_m:.2f} m"))
-else:
-    user_inputs_rows.append(
-        (
-            "Photovoltaic array layout",
-            "Roof reduction inputs",
-            "Not applicable for manual array input",
-        )
-    )
-
-user_inputs_rows.extend(
-    [
-        ("Photovoltaic array layout", "PV panel width", f"{module_width_m * 1000:.0f} mm"),
-        ("Photovoltaic array layout", "PV panel length", f"{module_length_m * 1000:.0f} mm"),
-        ("Photovoltaic array layout", "Module efficiency", f"{module_efficiency_pct:,.1f} %"),
-        ("Photovoltaic array layout", "Mount orientation", module_mount_orientation),
-        ("Photovoltaic array layout", "Estimated / fitted panel count", f"{get_total_array_panel_count(pv_arrays)}"),
-        ("Photovoltaic array layout", "Installed array capacity", f"{get_total_array_capacity_kwp(pv_arrays):,.2f} kWp"),
-        ("Photovoltaic array layout", "Installed capacity vs target", f"{part_l_capacity_progress_pct:,.0f} %"),
-        ("Photovoltaic array energy generation", "Generation calculation method", generation_method),
-        ("Photovoltaic array energy generation", "Selected EPW", selected_epw_label),
-        ("Photovoltaic array energy generation", "Selected EPW file", selected_epw_file),
-        ("Photovoltaic array energy generation", "SAP Appendix U region", sap_appendix_u_region_summary),
-        ("Photovoltaic array energy generation", "SAP Appendix U system performance factor", sap_appendix_u_inverter_efficiency_summary),
-    ]
-)
-
-calculation_assumption_rows = [
-    ("Part L photovoltaic target", "Reference PV area fraction", f"{FHS_REQUIRED_AREA_FRACTION:.2f} of ground floor area"),
-    ("Part L photovoltaic target", "Reference PV area", f"{target_reference_pv_area_m2:,.2f} m²"),
-    ("Part L photovoltaic target", "Standard panel efficiency density", f"{STANDARD_PANEL_EFFICIENCY_KWP_PER_M2:.2f} kWp/m²"),
-    ("Part L photovoltaic target", "Base target capacity formula", "Ground floor area × reference PV area fraction × standard panel efficiency density"),
-    ("Part L photovoltaic target", "Base target photovoltaic capacity", f"{nominal_part_l_required_kwp:,.2f} kWp"),
-    ("Part L photovoltaic target", "Target adjustment method", "Base target capacity divided by orientation / pitch / shading factor"),
-    ("Part L photovoltaic target", "Target orientation", target_calculation["orientation_label"]),
-    ("Part L photovoltaic target", "Target pitch / tilt", f"{target_calculation['tilt_deg']:.0f}°"),
-    ("Part L photovoltaic target", "Target shading", target_calculation["shading_label"]),
-    ("Part L photovoltaic target", "Reference orientation", PART_L_TARGET_REFERENCE_ORIENTATION),
-    ("Part L photovoltaic target", "Reference panel pitch / tilt", f"{PART_L_TARGET_REFERENCE_TILT_DEG:.0f}°"),
-    ("Part L photovoltaic target", "Reference region", PART_L_TARGET_REFERENCE_REGION),
-    ("Part L photovoltaic target", "Irradiation factor", f"{target_calculation['irradiation_factor']:.3f}"),
-    ("Part L photovoltaic target", "Shading factor", f"{target_calculation['shading_factor']:.2f}"),
-    ("Part L photovoltaic target", "Orientation / pitch / shading factor", f"{target_factor:.3f}"),
-    ("Part L photovoltaic target", "Target photovoltaic capacity", f"{part_l_required_kwp:,.2f} kWp"),
-    ("Part L photovoltaic target", "Equivalent standardised panel count", f"{part_l_required_panel_count}"),
-    ("Part L photovoltaic target", "Standardised panel width", f"{STANDARDISED_MODULE_WIDTH_M * 1000:.0f} mm"),
-    ("Part L photovoltaic target", "Standardised panel length", f"{STANDARDISED_MODULE_LENGTH_M * 1000:.0f} mm"),
-    ("Part L photovoltaic target", "Standardised panel efficiency", f"{STANDARDISED_MODULE_EFFICIENCY_PCT:.1f} %"),
-    ("Photovoltaic array layout", "Roof planes used", f"{len(roof_planes)}"),
-    ("Photovoltaic array layout", "Total gross roof area", f"{total_gross_roof_area_m2:,.2f} m²"),
-    ("Photovoltaic array layout", "Other reduction area from margins / offsets", f"{other_reduction_area_m2:,.2f} m²"),
-    ("Photovoltaic array layout", "Usable roof area for PV", f"{usable_available_pv_area_m2:,.2f} m²"),
-    ("Photovoltaic array layout", "Derived module power", f"{module_power_wp:,.0f} Wp"),
-    ("Photovoltaic array layout", "Maximum feasible panel count", f"{max_feasible_panels}"),
-    ("Photovoltaic array layout", "Installed array capacity", f"{get_total_array_capacity_kwp(pv_arrays):,.2f} kWp"),
-    ("Photovoltaic array layout", "kWp check against Part L target", actual_kwp_status),
-    ("Photovoltaic array layout", "Equivalent standardised / fitted panel count", f"{get_total_array_panel_count(pv_arrays)}"),
-    ("Photovoltaic array layout", "Editor fitted kWp", f"{editor_metrics['fitted_kwp']:,.2f} kWp"),
-    ("Photovoltaic array layout", "Editor fitted panels", f"{editor_metrics['fitted_panels']}"),
-    ("Photovoltaic array layout", "Editor blocked panels", f"{editor_metrics['blocked_panels']}"),
-    ("Photovoltaic array layout", "Editor invalid panels", f"{editor_metrics['invalid_panels']}"),
-    ("Photovoltaic array layout", "Editor kWp check against Part L target", editor_kwp_status),
-    ("Photovoltaic array layout", "Editor nudge distance default", f"{OBSTACLE_NUDGE_STEP_DEFAULT:.2f} m"),
-    ("Photovoltaic array energy generation", "Generation method selected", generation_method),
-    ("Photovoltaic array energy generation", "Generation status", generation_status_text),
-    ("Photovoltaic array energy generation", "Annual generation result", generation_annual_kwh_text),
-]
-
-if generation_method == "PySAM PVWatts":
-    calculation_assumption_rows.extend(
-        [
-            ("Photovoltaic array energy generation", "PySAM availability", "Installed" if pvwatts is not None else "Not installed"),
-            ("Photovoltaic array energy generation", "Weather source", selected_epw_file),
-            ("Photovoltaic array energy generation", "Performance / system losses", f"{PYSAM_SYSTEM_LOSSES_PCT:.1f} %"),
-            ("Photovoltaic array energy generation", "DC/AC ratio", f"{PYSAM_DC_AC_RATIO:.2f}"),
-            ("Photovoltaic array energy generation", "Array type", "Fixed roof mount"),
-            ("Photovoltaic array energy generation", "Module type", "Standard"),
-            ("Photovoltaic array energy generation", "Ground coverage ratio", f"{PYSAM_GCR:.2f}"),
-            ("Photovoltaic array energy generation", "Shading treatment", "Array-level shading factor applied to PySAM AC output"),
-        ]
-    )
-elif generation_method == "SAP Appendix U":
-    if sap_appendix_u_region_summary in SAP_APPENDIX_U_REGION_DATA:
-        appendix_u_region_data = SAP_APPENDIX_U_REGION_DATA[sap_appendix_u_region_summary]
-        appendix_u_region_description = (
-            f"{appendix_u_region_data['sap_region']} - "
-            f"{appendix_u_region_data['sap_region_name']}, "
-            f"{appendix_u_region_data['latitude_deg']:.1f}°N"
-        )
-    else:
-        appendix_u_region_description = "Not selected"
-
-    calculation_assumption_rows.extend(
-        [
-            ("Photovoltaic array energy generation", "SAP Appendix U region mapping", appendix_u_region_description),
-            ("Photovoltaic array energy generation", "SAP Appendix U horizontal irradiance source", "Monthly mean horizontal irradiance values coded in SAP_APPENDIX_U_REGION_DATA"),
-            ("Photovoltaic array energy generation", "SAP Appendix U declination source", "Monthly solar declination values coded in SAP_APPENDIX_U_SOLAR_DECLINATION_DEG"),
-            ("Photovoltaic array energy generation", "SAP Appendix U orientation constants source", "Orientation constants coded in SAP_APPENDIX_U_TABLE_U5_CONSTANTS"),
-            ("Photovoltaic array energy generation", "System performance factor", sap_appendix_u_inverter_efficiency_summary),
-            ("Photovoltaic array energy generation", "Shading treatment", "Array-level shading factor applied to SAP Appendix U generation"),
-        ]
-    )
-
-pv_array_summary_rows = build_array_summary_rows(pv_arrays)
-if not pv_array_summary_rows:
-    pv_array_summary_rows = build_empty_pv_array_summary_rows()
-
-render_section_title("inputs_summary", "Inputs added by user")
-with st.container(border=True):
-    user_inputs_df = pd.DataFrame(user_inputs_rows, columns=["Section", "Input", "Value"])
-    st.dataframe(user_inputs_df, hide_index=True, width="stretch")
-
-render_section_title("calculation_assumptions", "Calculation assumptions")
-with st.container(border=True):
-    calculation_assumptions_df = pd.DataFrame(
-        calculation_assumption_rows,
-        columns=["Section", "Assumption", "Value"],
-    )
-    st.dataframe(calculation_assumptions_df, hide_index=True, width="stretch")
-
-    st.markdown("**PV arrays used by generation calculation**")
-    st.dataframe(pd.DataFrame(pv_array_summary_rows), hide_index=True, width="stretch")
-
-render_section_title("roof_plane_table", "Roof plane table")
-with st.container(border=True):
-    if roof_planes:
-        plane_rows = build_plane_table_rows(
-            roof_planes=roof_planes,
-            display_panel_counts_for_planes=display_panel_counts_for_planes,
-            plane_layouts=plane_layouts,
-        )
-        st.dataframe(pd.DataFrame(plane_rows), hide_index=True, width="stretch")
-    else:
-        st.info("No roof-plane geometry is used when the manual array input route is selected.")
-
-with st.expander("Roof editor state JSON", expanded=False):
-    st.caption("Serialized roof geometry and layout payload for the interactive editor.")
-    st.json(roof_editor_state, expanded=False)
-    st.code(json.dumps(roof_editor_state, indent=2), language="json")
