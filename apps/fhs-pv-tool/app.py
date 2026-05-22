@@ -371,7 +371,7 @@ def clear_widget_state_if_not_in_options(
     if key in st.session_state and st.session_state[key] not in valid_options:
         del st.session_state[key]
 
-def _summary_card_html(label: str, value: str) -> str:
+def _summary_card_html(label: str, value: str, value_colour: str = SUMMARY_VALUE_COLOUR) -> str:
     return (
         f'<div style="flex:1;background:{SUMMARY_CARD_BACKGROUND};'
         f'border:1px solid {SUMMARY_CARD_BORDER_COLOUR};'
@@ -383,7 +383,7 @@ def _summary_card_html(label: str, value: str) -> str:
         f'<div style="font-size:{SUMMARY_LABEL_FONT_SIZE};font-weight:{SUMMARY_LABEL_FONT_WEIGHT};'
         f'color:{SUMMARY_LABEL_COLOUR};margin-bottom:{SUMMARY_LABEL_MARGIN_BOTTOM};">{label}</div>'
         f'<div style="font-size:{SUMMARY_VALUE_FONT_SIZE};font-weight:{SUMMARY_VALUE_FONT_WEIGHT};'
-        f'color:{SUMMARY_VALUE_COLOUR};line-height:{SUMMARY_VALUE_LINE_HEIGHT};">{value}</div>'
+        f'color:{value_colour};line-height:{SUMMARY_VALUE_LINE_HEIGHT};">{value}</div>'
         f'</div>'
     )
 
@@ -3259,8 +3259,8 @@ This tool is split into two sections.
 
 Two columns are shown side by side:
 
-- **Reference** uses the fixed FHS notional dwelling assumptions (South East, 45°, no shading) as the Part L benchmark.
-- **Actual** is user-adjustable. Set the orientation, pitch and shading to match the intended installation to see the corresponding capacity target.
+- **Part L 2026/FHS Target PV Array** uses the fixed FHS / SAP 10.3 PV assumptions (South East, 45°, no shading) as the Part L benchmark.
+- **Required PV Array** is user-adjustable. Set the orientation, pitch and shading to match the intended installation to see the corresponding capacity target.
 
 Annual generation for each column is estimated using SAP Appendix U, based on monthly surface irradiance for the selected orientation, pitch and shading, scaled by a system performance factor of 0.80.
 """
@@ -3308,6 +3308,7 @@ with st.container(border=True):
             ["Single roof plane", "Dual roof plane", "Dual-tilt flat roof"],
             index=0,
             key="array_layout_type",
+            disabled=True,
         )
         actual_roof_form = map_array_layout_type_to_roof_form(array_layout_type)
 
@@ -3384,15 +3385,15 @@ with st.container(border=True):
 # -----------------------------------------------------------------------------
 # Part L target
 # -----------------------------------------------------------------------------
-render_section_title("part_l_target", "Part L 2026 / FHS calculated PV requirements")
+render_section_title("part_l_target", "Part L 2026/FHS calculated PV requirements")
 with st.container(border=True):
     st.caption(
         "This tool calculates the minimum photovoltaic (PV) capacity required to meet the Part L 2026 target, "
         "based on the building's ground floor area and the performance of the intended array.\n\n"
-        "**Notional** — shows the Part L notional dwelling benchmark: South East orientation, 45° pitch, no shading. "
-        "These inputs are fixed and cannot be changed.\n\n"
-        "**Actual** — adjust the orientation, pitch and shading to match the planned installation. "
-        "The required capacity will update accordingly. "
+        "**Part L 2026/FHS Target PV Array** — shows the Part L benchmark PV array: South East orientation, 45° pitch, no shading. "
+        "These inputs are fixed and are provided for information purposes only.\n\n"
+        "**Required PV Array** — adjust the orientation, pitch and shading to match the planned installation. "
+        "The required PV capacity will update accordingly. "
         "A less favourable orientation or greater shading increases the target, because more installed capacity "
         "is needed to deliver the same energy contribution as the reference case."
     )
@@ -3401,9 +3402,11 @@ with st.container(border=True):
 
     _unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:{SUMMARY_UNIT_COLOUR};'>{u}</span>"
 
+    _ref_annual_generation_kwh: float = 0.0
+
     for _col, _prefix, _col_label in [
-        (_ref_col, "ref", "Part L 2026/FHS Notional Dwelling PV Array"),
-        (_act_col, "act", "Input Actual PV Array Parameters"),
+        (_ref_col, "ref", "Part L 2026/FHS Target PV Array"),
+        (_act_col, "act", "Required PV Array"),
     ]:
         with _col:
             with st.container(border=True):
@@ -3414,7 +3417,7 @@ with st.container(border=True):
 
                     with _target_input_cols[0]:
                         _target_orientation_label = st.selectbox(
-                            "Target array orientation",
+                            "Array orientation",
                             list(SAP_ORIENTATION_OPTIONS.keys()),
                             index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South East"),
                             key=f"{_prefix}_part_l_target_orientation",
@@ -3478,7 +3481,7 @@ with st.container(border=True):
 
                     with _target_input_cols[0]:
                         _target_orientation_label = st.selectbox(
-                            "Target array orientation",
+                            "Array orientation",
                             list(SAP_ORIENTATION_OPTIONS.keys()),
                             index=list(SAP_ORIENTATION_OPTIONS.keys()).index("South"),
                             key=f"{_prefix}_part_l_target_orientation",
@@ -3546,15 +3549,22 @@ with st.container(border=True):
                 _annual_generation_kwh = _gen_result["annual_generation_kwh"]
 
                 if _prefix == "ref":
-                    _rc1 = _summary_card_html("Target photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}")
-                    _rc2 = _summary_card_html("Estimated annual generation",  f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}")
+                    _ref_annual_generation_kwh = _annual_generation_kwh
+                    _muted_unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:#ADADB3;'>{u}</span>"
+                    _rc1 = _summary_card_html("Indicative photovoltaic capacity (as per ADL2006 equation 5.1)", f"{_part_l_required_kwp:,.2f} {_muted_unit_span('kWp')}", value_colour="#ADADB3")
+                    _rc2 = _summary_card_html("Target annual generation (as per ADL2026 5.73)",  f"{_annual_generation_kwh:,.0f} {_muted_unit_span('kWh/yr')}", value_colour="#ADADB3")
                     st.markdown(
                         f'<div style="display:flex;flex-direction:column;gap:8px;">{_rc1}{_rc2}</div>',
                         unsafe_allow_html=True,
                     )
                 else:
+                    _act_pct_of_ref = (
+                        _annual_generation_kwh / _ref_annual_generation_kwh * 100.0
+                        if _ref_annual_generation_kwh > 0
+                        else 0.0
+                    )
                     _ac1 = _summary_card_html("Required photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}")
-                    _ac2 = _summary_card_html("Estimated annual generation",    f"{_annual_generation_kwh:,.0f} {_unit_span('kWh/yr')}")
+                    _ac2 = _summary_card_html("% of target annual generation", f"{_act_pct_of_ref:,.1f} {_unit_span('%')}")
                     _ac3 = _summary_card_html("Required PV panel count",        f"{_part_l_required_panel_count:,.0f}")
                     st.markdown(
                         f'<div style="display:flex;gap:1rem;align-items:stretch;">'
@@ -3584,7 +3594,7 @@ with st.container(border=True):
                     ("Generation region", PART_L_TARGET_REFERENCE_REGION),
                     ("System performance factor", f"{0.80:.2f}"),
                     ("Specific yield", f"{_annual_generation_kwh / _gen_capacity_kwp:,.0f} kWh/kWp/yr"),
-                    ("Estimated annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
+                    ("Annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
                 ]
 
                 _act_assumption_rows = [
@@ -3606,7 +3616,7 @@ with st.container(border=True):
                     ("Generation region", PART_L_TARGET_REFERENCE_REGION),
                     ("System performance factor", f"{0.80:.2f}"),
                     ("Specific yield", f"{_annual_generation_kwh / _gen_capacity_kwp:,.0f} kWh/kWp/yr"),
-                    ("Estimated annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
+                    ("Annual generation", f"{_annual_generation_kwh:,.0f} kWh/yr"),
                 ]
 
                 _col_assumption_rows = _ref_assumption_rows if _prefix == "ref" else _act_assumption_rows
