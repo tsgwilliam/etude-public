@@ -3324,7 +3324,7 @@ with st.container(border=True):
         ground_floor_area_m2 = st.slider(
             "Ground floor area (m²)",
             min_value=20.00,
-            max_value=500.00,
+            max_value=200.00,
             value=72.00,
             step=0.01,
             key="dwelling_gfa_direct",
@@ -3343,7 +3343,7 @@ with st.container(border=True):
             ridge_parallel_width_for_gfa_m = st.slider(
                 "External width parallel to ridge / long side (m)",
                 min_value=4.00,
-                max_value=25.00,
+                max_value=15.00,
                 value=9.00,
                 step=0.01,
                 key="dwelling_gfa_width",
@@ -3353,7 +3353,7 @@ with st.container(border=True):
             depth_for_gfa_m = st.slider(
                 "External depth perpendicular to ridge / short side (m)",
                 min_value=4.00,
-                max_value=25.00,
+                max_value=15.00,
                 value=8.00,
                 step=0.01,
                 key="dwelling_gfa_depth",
@@ -3394,8 +3394,8 @@ with st.container(border=True):
         "These inputs are fixed and are provided for information purposes only.\n\n"
         "**Required PV Array** — adjust the orientation, pitch and shading to match the planned installation. "
         "The required PV capacity will update accordingly. "
-        "A less favourable orientation or greater shading increases the target, because more installed capacity "
-        "is needed to deliver the same energy contribution as the reference case."
+        "A less favourable orientation or greater shading increases the required photovoltaic capacity "
+        "to deliver the same energy contribution as the Part L target."
     )
 
     _ref_col, _act_col = st.columns(2)
@@ -3552,7 +3552,7 @@ with st.container(border=True):
                     _ref_annual_generation_kwh = _annual_generation_kwh
                     _muted_unit_span = lambda u: f"<span style='font-size:{SUMMARY_UNIT_FONT_SIZE}; font-weight:{SUMMARY_UNIT_FONT_WEIGHT}; color:#ADADB3;'>{u}</span>"
                     _rc1 = _summary_card_html("Indicative photovoltaic capacity (as per ADL2006 equation 5.1)", f"{_part_l_required_kwp:,.2f} {_muted_unit_span('kWp')}", value_colour="#ADADB3")
-                    _rc2 = _summary_card_html("Target annual generation (as per ADL2026 5.73)",  f"{_annual_generation_kwh:,.0f} {_muted_unit_span('kWh/yr')}", value_colour="#ADADB3")
+                    _rc2 = _summary_card_html("Target annual generation (based on UK average solar radiation)",  f"{_annual_generation_kwh:,.0f} {_muted_unit_span('kWh/yr')}", value_colour="#ADADB3")
                     st.markdown(
                         f'<div style="display:flex;flex-direction:column;gap:8px;">{_rc1}{_rc2}</div>',
                         unsafe_allow_html=True,
@@ -3564,8 +3564,8 @@ with st.container(border=True):
                         else 0.0
                     )
                     _ac1 = _summary_card_html("Required photovoltaic capacity", f"{_part_l_required_kwp:,.2f} {_unit_span('kWp')}")
-                    _ac2 = _summary_card_html("% of target annual generation", f"{_act_pct_of_ref:,.1f} {_unit_span('%')}")
-                    _ac3 = _summary_card_html("Required PV panel count",        f"{_part_l_required_panel_count:,.0f}")
+                    _ac2 = _summary_card_html("% of target annual generation (based on UK average solar radiation)", f"{_act_pct_of_ref:,.1f} {_unit_span('%')}")
+                    _ac3 = _summary_card_html("Required PV panel count", f"{_part_l_required_panel_count:,.0f}")
                     st.markdown(
                         f'<div style="display:flex;gap:1rem;align-items:stretch;">'
                         f'<div style="flex:1;display:flex;flex-direction:column;gap:8px;">{_ac1}{_ac2}</div>'
