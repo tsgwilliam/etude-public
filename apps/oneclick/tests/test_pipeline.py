@@ -39,5 +39,36 @@ def test_build_canonical_dataset_from_sample():
     assert dataset.rows["material_family"].ne("Other").any()
 
 
+def test_workbook_file_name_mismatch_still_pairs_upload():
+    """Workbook file_name need not match upload if there is one row per upload."""
+    from io import BytesIO
+    from oneclick_core.config import create_blank_project_workbook_bytes
+
+    config_dir = Path(__file__).resolve().parents[1] / "config"
+    sample = Path(
+        "/home/ubuntu/.cursor/projects/workspace/uploads/"
+        "detailReport_02.06.2026_11_30_33_71b5.xls"
+    )
+    if not sample.exists():
+        pytest.skip("user sample not available")
+
+    project = load_project_workbook(BytesIO(create_blank_project_workbook_bytes()))
+    # Simulate user putting a label instead of the real upload filename
+    project.buildings.loc[0, "file_name"] = "Test 1"
+    project.buildings.loc[0, "building_name"] = "Building 1"
+    project.buildings.loc[0, "gia_m2"] = 10000
+
+    dataset = build_canonical_dataset(
+        uploads=[("detailReport_02.06.2026_11_30_33.xls", sample.read_bytes())],
+        project=project,
+        config_dir=config_dir,
+        selected_buildings=["Building 1"],
+        nrm_level=2,
+    )
+    assert len(dataset.rows) > 100
+    assert dataset.rows["building_name"].eq("Building 1").all()
+    assert float(dataset.rows["rics_allocated_value"].sum()) > 0
+
+
 def test_default_building_name():
     assert "detailReport" in default_building_name("detailReport_12.05.2026.xls")

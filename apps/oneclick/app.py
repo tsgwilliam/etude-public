@@ -123,6 +123,9 @@ def main() -> None:
         st.error(f"Failed to build dataset: {exc}")
         return
 
+    for warning in dataset.warnings:
+        st.warning(warning)
+
     rows = dataset.rows
     if rows.empty:
         st.warning("No rows matched the selected buildings.")

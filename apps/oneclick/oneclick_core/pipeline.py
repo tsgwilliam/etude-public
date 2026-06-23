@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import tempfile
-from typing import BinaryIO
 
 import pandas as pd
 
@@ -19,6 +18,7 @@ class ProjectDataset:
     rows: pd.DataFrame
     meta_by_building: dict[str, dict]
     em_col: str = "kgco2e"
+    warnings: list[str] = field(default_factory=list)
 
 
 def default_building_name(filename: str) -> str:
@@ -52,66 +52,109 @@ def parse_oneclick_path(path: Path) -> tuple[pd.DataFrame, dict]:
 
 
 def parse_uploaded_bytes(name: str, data: bytes) -> tuple[pd.DataFrame, dict]:
+    if not data:
+        raise ValueError(f"Upload '{name}' is empty (0 bytes). Re-upload the OneClick detailReport file.")
+
     suffix = Path(name).suffix.lower() or ".xls"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(data)
         tmp.flush()
-        return parse_oneclick_path(Path(tmp.name))
-
-
-def _building_lookup(project: ProjectConfig, uploaded_names: list[str]) -> pd.DataFrame:
-    cols = {c.lower(): c for c in project.buildings.columns} if not project.buildings.empty else {}
-    if not cols:
-        return pd.DataFrame(
-            {
-                "file_name": uploaded_names,
-                "building_name": [default_building_name(n) for n in uploaded_names],
-                "gia_m2": [0.0] * len(uploaded_names),
-                "include": ["yes"] * len(uploaded_names),
-            }
+        rows, meta = parse_oneclick_path(Path(tmp.name))
+    if rows.empty:
+        raise ValueError(
+            f"Upload '{name}' did not produce any data rows. "
+            "Check that this is a OneClick **detailReport** export (not a summary/results export)."
         )
+    return rows, meta
 
+
+def _normalize_buildings_df(project: ProjectConfig) -> pd.DataFrame:
+    if project.buildings.empty:
+        return pd.DataFrame(columns=["file_name", "building_name", "gia_m2"])
+
+    cols = {c.lower(): c for c in project.buildings.columns}
     df = project.included_buildings().copy()
-    rename = {}
-    for key, original in cols.items():
-        if key == "file_name":
-            rename[original] = "file_name"
-        elif key == "building_name":
-            rename[original] = "building_name"
-        elif key == "gia_m2":
-            rename[original] = "gia_m2"
-        elif key == "include":
-            rename[original] = "include"
+    rename = {
+        cols[k]: k
+        for k in ["file_name", "building_name", "gia_m2", "include"]
+        if k in cols
+    }
     df = df.rename(columns=rename)
 
-    for col in ["file_name", "building_name", "gia_m2"]:
+    for col, default in [("file_name", ""), ("building_name", ""), ("gia_m2", 0.0)]:
         if col not in df.columns:
-            if col == "gia_m2":
-                df[col] = 0.0
-            else:
-                df[col] = ""
+            df[col] = default
 
-    if df.empty:
+    df["file_name"] = df["file_name"].astype(str).str.strip()
+    df["building_name"] = df["building_name"].astype(str).str.strip()
+    df["gia_m2"] = pd.to_numeric(df["gia_m2"], errors="coerce").fillna(0.0)
+    return df
+
+
+def resolve_upload_building_pairs(
+    project: ProjectConfig,
+    uploaded_names: list[str],
+) -> tuple[pd.DataFrame, list[str]]:
+    """Map each uploaded filename to a building name and GIA from the workbook."""
+    warnings: list[str] = []
+    buildings = _normalize_buildings_df(project)
+
+    if buildings.empty:
         return pd.DataFrame(
             {
                 "file_name": uploaded_names,
                 "building_name": [default_building_name(n) for n in uploaded_names],
                 "gia_m2": [0.0] * len(uploaded_names),
             }
-        )
+        ), warnings
 
-    known = set(df["file_name"].astype(str))
-    extras = [n for n in uploaded_names if n not in known]
-    if extras:
-        extra_df = pd.DataFrame(
-            {
-                "file_name": extras,
-                "building_name": [default_building_name(n) for n in extras],
-                "gia_m2": [0.0] * len(extras),
-            }
-        )
-        df = pd.concat([df, extra_df], ignore_index=True)
-    return df
+    pairs: list[dict] = []
+    unmatched_uploads = list(uploaded_names)
+    assigned_building_idx: set[int] = set()
+
+    for idx, brow in buildings.iterrows():
+        workbook_name = str(brow["file_name"]).strip()
+        if workbook_name and workbook_name in unmatched_uploads:
+            pairs.append(
+                {
+                    "file_name": workbook_name,
+                    "building_name": str(brow["building_name"]).strip(),
+                    "gia_m2": float(brow["gia_m2"]),
+                }
+            )
+            unmatched_uploads.remove(workbook_name)
+            assigned_building_idx.add(idx)
+
+    remaining_buildings = buildings.loc[~buildings.index.isin(assigned_building_idx)].reset_index(drop=True)
+    for i, upload_name in enumerate(unmatched_uploads):
+        if i < len(remaining_buildings):
+            brow = remaining_buildings.iloc[i]
+            workbook_name = str(brow["file_name"]).strip()
+            pairs.append(
+                {
+                    "file_name": upload_name,
+                    "building_name": str(brow["building_name"]).strip(),
+                    "gia_m2": float(brow["gia_m2"]),
+                }
+            )
+            if workbook_name and workbook_name != upload_name:
+                warnings.append(
+                    f"Linked upload **{upload_name}** to building **{brow['building_name']}** "
+                    f"(workbook `file_name` was `{workbook_name}`, which did not match the upload)."
+                )
+        else:
+            pairs.append(
+                {
+                    "file_name": upload_name,
+                    "building_name": default_building_name(upload_name),
+                    "gia_m2": 0.0,
+                }
+            )
+            warnings.append(
+                f"No building row available for upload **{upload_name}**; using default name and GIA 0."
+            )
+
+    return pd.DataFrame(pairs), warnings
 
 
 def _manual_rows(project: ProjectConfig, building_lookup: pd.DataFrame, em_col: str) -> pd.DataFrame:
@@ -133,34 +176,46 @@ def _manual_rows(project: ProjectConfig, building_lookup: pd.DataFrame, em_col: 
 
     rows = []
     for i, row in manual.iterrows():
-        building = str(row[cols["building_name"]]).strip()
-        gia = float(gia_map.get(building, 0.0))
+        raw_building = row[cols["building_name"]]
+        building = "" if pd.isna(raw_building) else str(raw_building).strip()
         intensity = float(pd.to_numeric(row[cols["kgco2e_per_m2_gia"]], errors="coerce") or 0.0)
         nrm_code = str(row[cols["nrm_code"]]).strip()
         label = str(row[cols["label"]]).strip()
         life_stage = str(row[cols["life_stage"]]).strip()
         etude_group = str(row[cols["etude_group"]]).strip() if "etude_group" in cols else ""
 
-        rows.append(
-            {
-                "section": life_stage,
-                "rics_detail": f"{nrm_code}.{label}" if nrm_code and label else label or nrm_code,
-                "rics_high_label": "",
-                "rics_level2_label": "",
-                "rics_alloc_label": nrm_code,
-                "rics_allocated_value": intensity * gia,
-                em_col: intensity * gia,
-                "element_name": label,
-                "Comment": "Manual entry",
-                "building_name": building,
-                "building_gia_m2": gia,
-                "source_file": "manual_workbook",
-                "_source_row_id": f"manual__{building}__{i}",
-                "is_manual": True,
-                "nrm_code": extract_nrm_code(nrm_code),
-                "etude_group_seed": etude_group,
-            }
-        )
+        if not building or building.lower() == "nan":
+            target_buildings = building_lookup["building_name"].astype(str).str.strip().tolist()
+        else:
+            target_buildings = [building]
+
+        if intensity == 0.0 and not label:
+            continue
+
+        for bname in target_buildings:
+            if not bname:
+                continue
+            gia = float(gia_map.get(bname, 0.0))
+            rows.append(
+                {
+                    "section": life_stage,
+                    "rics_detail": f"{nrm_code}.{label}" if nrm_code and label else label or nrm_code,
+                    "rics_high_label": "",
+                    "rics_level2_label": "",
+                    "rics_alloc_label": nrm_code,
+                    "rics_allocated_value": intensity * gia,
+                    em_col: intensity * gia,
+                    "element_name": label,
+                    "Comment": "Manual entry",
+                    "building_name": bname,
+                    "building_gia_m2": gia,
+                    "source_file": "manual_workbook",
+                    "_source_row_id": f"manual__{bname}__{i}",
+                    "is_manual": True,
+                    "nrm_code": extract_nrm_code(nrm_code),
+                    "etude_group_seed": etude_group,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -172,12 +227,7 @@ def build_canonical_dataset(
     nrm_level: int = 2,
 ) -> ProjectDataset:
     uploaded_names = [name for name, _ in uploads]
-    building_lookup = _building_lookup(project, uploaded_names)
-
-    if selected_buildings:
-        building_lookup = building_lookup[
-            building_lookup["building_name"].astype(str).isin(selected_buildings)
-        ].copy()
+    building_lookup, warnings = resolve_upload_building_pairs(project, uploaded_names)
 
     material_rules = load_mapping_csv(config_dir / "material_family_map.csv")
     etude_rules = load_mapping_csv(config_dir / "etude_group_rules.csv")
@@ -190,9 +240,13 @@ def build_canonical_dataset(
     lookup = building_lookup.set_index("file_name", drop=False)
     for file_name, payload in uploads:
         if file_name not in lookup.index:
+            warnings.append(f"Upload **{file_name}** was not linked to a building and was skipped.")
             continue
         building_name = str(lookup.at[file_name, "building_name"]).strip()
         gia = float(pd.to_numeric(lookup.at[file_name, "gia_m2"], errors="coerce") or 0.0)
+
+        if selected_buildings and building_name not in selected_buildings:
+            continue
 
         rows, meta = parse_uploaded_bytes(file_name, payload)
         rows = rows.copy()
@@ -206,13 +260,19 @@ def build_canonical_dataset(
     if not all_rows:
         manual_only = _manual_rows(project, building_lookup, em_col="kgco2e")
         if manual_only.empty:
-            return ProjectDataset(rows=pd.DataFrame(), meta_by_building={})
+            return ProjectDataset(rows=pd.DataFrame(), meta_by_building={}, warnings=warnings)
         combined = manual_only
     else:
         combined = pd.concat(all_rows, ignore_index=True)
         manual = _manual_rows(project, building_lookup, em_col="kgco2e")
         if not manual.empty:
-            combined = pd.concat([combined, manual], ignore_index=True)
+            if selected_buildings:
+                manual = manual[manual["building_name"].astype(str).isin(selected_buildings)]
+            if not manual.empty:
+                combined = pd.concat([combined, manual], ignore_index=True)
+
+    if selected_buildings:
+        combined = combined[combined["building_name"].astype(str).isin(selected_buildings)].copy()
 
     if "rics_allocated_value" not in combined.columns:
         combined["rics_allocated_value"] = pd.to_numeric(combined.get("kgco2e", 0.0), errors="coerce").fillna(0.0)
@@ -259,4 +319,4 @@ def build_canonical_dataset(
 
     combined["etude_group"] = combined["etude_group"].fillna("").astype(str)
 
-    return ProjectDataset(rows=combined, meta_by_building=meta_by_building, em_col="kgco2e")
+    return ProjectDataset(rows=combined, meta_by_building=meta_by_building, warnings=warnings, em_col="kgco2e")

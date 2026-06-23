@@ -81,21 +81,21 @@ def load_project_workbook(source: Path | BinaryIO | None) -> ProjectConfig:
 def create_blank_project_workbook_bytes() -> bytes:
     buildings = pd.DataFrame(
         {
-            "file_name": ["example_detailReport.xls"],
-            "building_name": ["Example building"],
+            "file_name": ["detailReport_example.xls"],
+            "building_name": ["Building 1"],
             "gia_m2": [0.0],
             "include": ["yes"],
         }
     )
     manual = pd.DataFrame(
         {
-            "building_name": [""],
+            "building_name": ["Building 1"],
             "life_stage": ["A1-A3"],
             "nrm_code": ["5.3"],
             "label": ["Manual benchmark example"],
             "kgco2e_per_m2_gia": [0.0],
             "etude_group": [""],
-            "notes": [""],
+            "notes": ["Set kgCO2e/m2 and building name, or leave blank to skip"],
         }
     )
     overrides = pd.DataFrame({"nrm_code": ["2.5.1"], "display_name": ["External walls (above ground)"]})
