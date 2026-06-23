@@ -1,0 +1,16 @@
+priority,match_type,match_pattern,etude_group
+10,nrm_prefix,1.,Substructure
+10,nrm_prefix,2.1,Structure
+10,nrm_prefix,2.2,Structure
+10,nrm_prefix,2.3,Structure
+11,nrm_prefix,2.5,Envelope
+11,nrm_prefix,2.6,Envelope
+12,nrm_prefix,2.7,Internal fabric
+12,nrm_prefix,2.8,Internal fabric
+13,nrm_prefix,3.,Finishes
+14,nrm_prefix,5.,MEP
+15,nrm_prefix,8.,External works
+20,material_family,Concrete,Structure
+20,material_family,Steel,Structure
+20,material_family,Timber,Structure
+99,default,*,General

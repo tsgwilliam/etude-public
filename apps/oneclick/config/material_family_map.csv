@@ -1,0 +1,26 @@
+priority,match_type,match_pattern,material_family
+10,contains,ready-mix concrete,Concrete
+10,contains,reinforcement steel,Steel
+10,contains,rebar,Steel
+10,contains,structural steel,Steel
+11,contains,stainless,Metal
+11,contains,aluminium,Metal
+11,contains,aluminum,Metal
+12,contains,timber,Timber
+12,contains,wood,Timber
+12,contains,plywood,Timber
+13,contains,glass,Glass
+14,contains,insulation,Insulation
+14,contains,mineral wool,Insulation
+15,contains,screed,Concrete
+15,contains,cement,Concrete
+16,contains,brick,Masonry
+16,contains,blockwork,Masonry
+16,contains,masonry,Masonry
+17,contains,plaster,Finishes
+17,contains,paint,Finishes
+18,contains,copper,Metal
+18,contains,zinc,Metal
+19,contains,pvc,Plastic
+19,contains,polymer,Plastic
+99,default,*,Other
