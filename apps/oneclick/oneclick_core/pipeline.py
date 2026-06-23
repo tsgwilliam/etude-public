@@ -51,9 +51,33 @@ def parse_oneclick_path(path: Path) -> tuple[pd.DataFrame, dict]:
     return rows, report.meta or {}
 
 
-def parse_uploaded_bytes(name: str, data: bytes) -> tuple[pd.DataFrame, dict]:
+def validate_detail_report_bytes(name: str, data: bytes) -> None:
+    """Reject OneClick summary/result exports that are not detailReports."""
     if not data:
         raise ValueError(f"Upload '{name}' is empty (0 bytes). Re-upload the OneClick detailReport file.")
+
+    suffix = Path(name).suffix.lower() or ".xls"
+    engine = "xlrd" if suffix == ".xls" else "openpyxl"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(data)
+        tmp.flush()
+        raw = pd.read_excel(tmp.name, header=None, engine=engine, nrows=4)
+
+    if len(raw) < 3:
+        raise ValueError(f"Upload '{name}' is too small to be a OneClick detailReport.")
+
+    header_label = str(raw.iloc[2, 0]).strip().lower()
+    if header_label != "section":
+        raise ValueError(
+            f"Upload '{name}' looks like a OneClick **summary/results** export (first column: "
+            f"'{raw.iloc[2, 0]}'), not a **detailReport**. "
+            "Re-export from OneClick using the detail report option — the file should have "
+            "1,000+ rows and the first column header should be 'Section'."
+        )
+
+
+def parse_uploaded_bytes(name: str, data: bytes) -> tuple[pd.DataFrame, dict]:
+    validate_detail_report_bytes(name, data)
 
     suffix = Path(name).suffix.lower() or ".xls"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -62,8 +86,8 @@ def parse_uploaded_bytes(name: str, data: bytes) -> tuple[pd.DataFrame, dict]:
         rows, meta = parse_oneclick_path(Path(tmp.name))
     if rows.empty:
         raise ValueError(
-            f"Upload '{name}' did not produce any data rows. "
-            "Check that this is a OneClick **detailReport** export (not a summary/results export)."
+            f"Upload '{name}' did not produce any data rows after parsing. "
+            "Check that this is a OneClick detailReport export."
         )
     return rows, meta
 

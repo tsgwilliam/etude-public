@@ -13,9 +13,9 @@ from oneclick_core.charts import (
     plot_rics_single_stack,
     plot_rics_two_stacks,
 )
-from oneclick_core.config import create_blank_project_workbook_bytes, load_project_workbook
+from oneclick_core.config import building_names_for_uploads, create_project_workbook_bytes, load_project_workbook
 from oneclick_core.export import build_results_workbook_bytes
-from oneclick_core.pipeline import build_canonical_dataset, default_building_name
+from oneclick_core.pipeline import build_canonical_dataset
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = APP_DIR / "config"
@@ -61,13 +61,6 @@ def main() -> None:
             help="Use the template for Buildings, Manual_Additions, and Label_Overrides sheets.",
         )
 
-    st.download_button(
-        "Download blank project workbook template",
-        data=create_blank_project_workbook_bytes(),
-        file_name="Etude_OneClick_Project.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
     if uploaded_files:
         _remember_uploads(uploaded_files)
     if project_file is not None:
@@ -75,21 +68,46 @@ def main() -> None:
         st.session_state["project_workbook_bytes"] = project_file.getvalue()
 
     uploads = _uploads_from_session()
+    project_for_template = load_project_workbook(
+        BytesIO(_project_config_bytes()) if _project_config_bytes() else None
+    )
+    template_label = (
+        "Download project workbook (pre-filled from uploads)"
+        if uploads
+        else "Download blank project workbook template"
+    )
+    st.download_button(
+        template_label,
+        data=create_project_workbook_bytes(
+            upload_file_names=[name for name, _ in uploads],
+            existing=project_for_template if not project_for_template.buildings.empty else None,
+        ),
+        file_name="Etude_OneClick_Project.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
     if not uploads:
         st.info("Upload at least one OneClick detailReport export to begin.")
         return
 
     project = load_project_workbook(BytesIO(_project_config_bytes()) if _project_config_bytes() else None)
 
-    building_names = []
     if not project.buildings.empty:
         cols = {c.lower(): c for c in project.buildings.columns}
         if "building_name" in cols:
             building_names = (
                 project.included_buildings()[cols["building_name"]].astype(str).str.strip().tolist()
             )
-    if not building_names:
-        building_names = [default_building_name(name) for name, _ in uploads]
+        else:
+            building_names = []
+    else:
+        building_names = []
+
+    if not building_names and uploads:
+        building_names = building_names_for_uploads(
+            [name for name, _ in uploads],
+            existing=project if not project.buildings.empty else None,
+        )
 
     with st.sidebar:
         st.header("Controls")

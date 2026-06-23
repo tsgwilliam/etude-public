@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
+import re
 from typing import BinaryIO
 
 import pandas as pd
@@ -78,8 +79,66 @@ def load_project_workbook(source: Path | BinaryIO | None) -> ProjectConfig:
     )
 
 
-def create_blank_project_workbook_bytes() -> bytes:
-    buildings = pd.DataFrame(
+def _default_building_name(filename: str) -> str:
+    stem = Path(filename).stem
+    stem = re.sub(r"[_\-]+", " ", stem)
+    return re.sub(r"\s+", " ", stem).strip()
+
+
+def _normalize_buildings_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["file_name", "building_name", "gia_m2", "include"])
+
+    cols = {c.lower(): c for c in df.columns}
+    out = df.copy()
+    rename = {cols[k]: k for k in ["file_name", "building_name", "gia_m2", "include"] if k in cols}
+    out = out.rename(columns=rename)
+
+    for col, default in [("file_name", ""), ("building_name", ""), ("gia_m2", 0.0), ("include", "yes")]:
+        if col not in out.columns:
+            out[col] = default
+
+    out["file_name"] = out["file_name"].astype(str).str.strip()
+    out["building_name"] = out["building_name"].astype(str).str.strip()
+    out["gia_m2"] = pd.to_numeric(out["gia_m2"], errors="coerce").fillna(0.0)
+    out["include"] = out["include"].astype(str).str.strip().replace("", "yes")
+    return out
+
+
+def _buildings_from_uploads(
+    upload_file_names: list[str],
+    existing: ProjectConfig | None = None,
+) -> pd.DataFrame:
+    existing_df = _normalize_buildings_table(existing.buildings) if existing and not existing.buildings.empty else pd.DataFrame()
+
+    rows: list[dict] = []
+    for index, file_name in enumerate(upload_file_names):
+        file_name = str(file_name).strip()
+        building_name = _default_building_name(file_name)
+        gia_m2 = 0.0
+
+        exact = existing_df[existing_df["file_name"] == file_name] if not existing_df.empty else pd.DataFrame()
+        if not exact.empty:
+            building_name = str(exact.iloc[0]["building_name"]).strip() or building_name
+            gia_m2 = float(exact.iloc[0]["gia_m2"])
+        elif not existing_df.empty and index < len(existing_df):
+            brow = existing_df.iloc[index]
+            building_name = str(brow["building_name"]).strip() or building_name
+            gia_m2 = float(brow["gia_m2"])
+
+        rows.append(
+            {
+                "file_name": file_name,
+                "building_name": building_name,
+                "gia_m2": gia_m2,
+                "include": "yes",
+            }
+        )
+
+    if rows:
+        return pd.DataFrame(rows)
+
+    return pd.DataFrame(
         {
             "file_name": ["detailReport_example.xls"],
             "building_name": ["Building 1"],
@@ -87,18 +146,51 @@ def create_blank_project_workbook_bytes() -> bytes:
             "include": ["yes"],
         }
     )
-    manual = pd.DataFrame(
-        {
-            "building_name": ["Building 1"],
-            "life_stage": ["A1-A3"],
-            "nrm_code": ["5.3"],
-            "label": ["Manual benchmark example"],
-            "kgco2e_per_m2_gia": [0.0],
-            "etude_group": [""],
-            "notes": ["Set kgCO2e/m2 and building name, or leave blank to skip"],
-        }
+
+
+def building_names_for_uploads(
+    upload_file_names: list[str],
+    existing: ProjectConfig | None = None,
+) -> list[str]:
+    return (
+        _buildings_from_uploads(upload_file_names, existing)["building_name"]
+        .astype(str)
+        .str.strip()
+        .tolist()
     )
-    overrides = pd.DataFrame({"nrm_code": ["2.5.1"], "display_name": ["External walls (above ground)"]})
+
+
+def create_project_workbook_bytes(
+    upload_file_names: list[str] | None = None,
+    existing: ProjectConfig | None = None,
+) -> bytes:
+    """Build a project workbook, pre-filling Buildings from uploaded OneClick filenames."""
+    buildings = _buildings_from_uploads(upload_file_names or [], existing)
+
+    if existing is not None and not existing.manual_additions.empty:
+        manual = existing.manual_additions.copy()
+    else:
+        manual = pd.DataFrame(
+            columns=[
+                "building_name",
+                "life_stage",
+                "nrm_code",
+                "label",
+                "kgco2e_per_m2_gia",
+                "etude_group",
+                "notes",
+            ]
+        )
+
+    if existing is not None and not existing.label_overrides.empty:
+        overrides = existing.label_overrides.copy()
+    else:
+        overrides = pd.DataFrame(
+            {
+                "nrm_code": ["2.5.1"],
+                "display_name": ["External walls (above ground)"],
+            }
+        )
 
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -106,3 +198,7 @@ def create_blank_project_workbook_bytes() -> bytes:
         manual.to_excel(writer, sheet_name="Manual_Additions", index=False)
         overrides.to_excel(writer, sheet_name="Label_Overrides", index=False)
     return buffer.getvalue()
+
+
+def create_blank_project_workbook_bytes() -> bytes:
+    return create_project_workbook_bytes(upload_file_names=None, existing=None)
