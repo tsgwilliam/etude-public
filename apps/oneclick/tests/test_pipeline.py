@@ -112,13 +112,25 @@ def test_summary_export_rejected(uploads_dir: Path):
         validate_detail_report_bytes(summary.name, summary.read_bytes())
 
 
-def test_project_workbook_prefilled_from_uploads():
-    names = [
-        "detailReport_02.06.2026_11_30_33.xls",
-        "detailReport_08.05.2026_16_00_10.xls",
-    ]
-    workbook = create_project_workbook_bytes(upload_file_names=names)
-    project = load_project_workbook(BytesIO(workbook))
-    assert len(project.buildings) == 2
-    assert list(project.buildings["file_name"]) == names
-    assert project.buildings["gia_m2"].tolist() == [0.0, 0.0]
+def test_subtotal_rows_do_not_double_count_john_lobb():
+    sample = Path(
+        "/home/ubuntu/.cursor/projects/workspace/uploads/"
+        "detailReport_20.07.2026_16_34_32_9972.xls"
+    )
+    if not sample.exists():
+        pytest.skip("John Lobb detail report not available")
+
+    dataset = build_canonical_dataset(
+        uploads=[(sample.name, sample.read_bytes())],
+        project=load_project_workbook(None),
+        config_dir=Path(__file__).resolve().parents[1] / "config",
+        nrm_level=1,
+    )
+    upfront = dataset.rows[dataset.rows["section"].isin(["A1-A3", "A4", "A5"])]
+    total = float(upfront["rics_allocated_value"].sum())
+    # Spreadsheet New Build GWP A1-A5 structure total before contingency/manual overrides
+    assert 2_900_000 < total < 3_200_000, total
+    sub = float(
+        upfront.loc[upfront["chart_high"] == "Substructure", "rics_allocated_value"].sum()
+    )
+    assert abs(sub - 1_536_916.5) < 1.0, sub

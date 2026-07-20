@@ -32,6 +32,7 @@ def drop_oneclick_total_rows(df: pd.DataFrame) -> pd.DataFrame:
     if "section" in out.columns:
         sec = out["section"].astype(str).str.strip().str.lower()
         out = out[~sec.isin({"total", "subtotal", "sum"})]
+
     if "Resource" in out.columns:
         res = out["Resource"].astype(str).str.strip()
         res_l = res.str.lower()
@@ -42,6 +43,39 @@ def drop_oneclick_total_rows(df: pd.DataFrame) -> pd.DataFrame:
                 | res_l.str.match(r"^total\b", na=False)
             )
         ]
+
+    # Drop OneClick subcategory subtotal rows: blank descriptors but non-zero carbon.
+    # These duplicate the sum of the material lines above them and roughly double charts.
+    descriptor_cols = [
+        c
+        for c in [
+            "Resource",
+            "Design name",
+            "Indicator name",
+            "Comment",
+            "element_name",
+            "User input",
+            "User input unit",
+            "Material",
+            "Question",
+            "Construction",
+        ]
+        if c in out.columns
+    ]
+    if descriptor_cols:
+        tmp = out[descriptor_cols].copy()
+        for c in descriptor_cols:
+            tmp[c] = tmp[c].astype(str).str.strip()
+            tmp.loc[tmp[c].isin(["", "nan", "None", "<na>", "<NA>"]), c] = None
+        all_missing = tmp.isna().all(axis=1)
+
+        value_cols = [c for c in ["rics_allocated_value", "kgco2e"] if c in out.columns]
+        if not value_cols:
+            value_cols = out.select_dtypes("number").columns.tolist()
+        if value_cols:
+            # Drop all blank-descriptor rows (subtotals), including zero-value leftovers.
+            out = out[~all_missing].copy()
+
     return out
 
 
