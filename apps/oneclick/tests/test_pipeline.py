@@ -112,6 +112,18 @@ def test_summary_export_rejected(uploads_dir: Path):
         validate_detail_report_bytes(summary.name, summary.read_bytes())
 
 
+def test_project_workbook_prefilled_from_uploads():
+    names = [
+        "detailReport_02.06.2026_11_30_33.xls",
+        "detailReport_08.05.2026_16_00_10.xls",
+    ]
+    workbook = create_project_workbook_bytes(upload_file_names=names)
+    project = load_project_workbook(BytesIO(workbook))
+    assert len(project.buildings) == 2
+    assert list(project.buildings["file_name"]) == names
+    assert project.buildings["gia_m2"].tolist() == [0.0, 0.0]
+
+
 def test_subtotal_rows_do_not_double_count_john_lobb():
     sample = Path(
         "/home/ubuntu/.cursor/projects/workspace/uploads/"
