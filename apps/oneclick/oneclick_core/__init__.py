@@ -1,11 +1,4 @@
 """OneClick LCA detail-report processing for Etude."""
 
-from oneclick_core.pipeline import build_canonical_dataset, ProjectDataset
-from oneclick_core.config import load_project_workbook, ProjectConfig
-
-__all__ = [
-    "build_canonical_dataset",
-    "ProjectDataset",
-    "load_project_workbook",
-    "ProjectConfig",
-]
+# Keep package init lazy — do not eagerly import submodules here.
+# Streamlit Cloud imports app submodules directly (oneclick_core.charts, etc.).
