@@ -111,10 +111,13 @@ def is_pv_text(*parts: str) -> bool:
 
 
 def available_nrm_levels(nrm_codes: pd.Series) -> list[int]:
-    """Return NRM display levels that exist in the data (1..4)."""
+    """Return NRM display levels that exist in the data (1..4).
+
+    Used by the Streamlit sidebar so empty depth options are omitted.
+    """
     max_depth = 1
     for code in nrm_codes.dropna().astype(str):
-        code = code.strip()
+        code = str(code).strip()
         if not code or code.lower() == "nan":
             continue
         if code == PV_CODE:

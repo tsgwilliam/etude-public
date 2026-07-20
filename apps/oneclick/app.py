@@ -21,10 +21,28 @@ from oneclick_core.charts import (
 )
 from oneclick_core.config import building_names_for_uploads, create_project_workbook_bytes, load_project_workbook
 from oneclick_core.export import build_results_workbook_bytes
-from oneclick_core.nrm import available_nrm_levels
 from oneclick_core.pipeline import build_canonical_dataset
+from oneclick_core import nrm as nrm_mod
 
 CONFIG_DIR = APP_DIR / "config"
+
+
+def _available_nrm_levels(nrm_codes: pd.Series) -> list[int]:
+    """Prefer package helper; keep a local fallback for stale Cloud deploys."""
+    helper = getattr(nrm_mod, "available_nrm_levels", None)
+    if callable(helper):
+        return helper(nrm_codes)
+    max_depth = 1
+    for code in nrm_codes.dropna().astype(str):
+        code = code.strip()
+        if not code or code.lower() == "nan":
+            continue
+        if code == getattr(nrm_mod, "PV_CODE", "5.PV"):
+            max_depth = max(max_depth, 2)
+            continue
+        depth = len([p for p in code.split(".") if p])
+        max_depth = max(max_depth, min(depth, 4))
+    return list(range(1, max_depth + 1))
 
 
 def _uploads_from_session() -> list[tuple[str, bytes]]:
@@ -196,7 +214,7 @@ def main() -> None:
         st.warning("No rows matched the selected buildings.")
         return
 
-    levels = available_nrm_levels(rows["nrm_code"])
+    levels = _available_nrm_levels(rows["nrm_code"])
     if levels and levels != st.session_state.get("available_nrm_levels"):
         st.session_state["available_nrm_levels"] = levels
         if int(nrm_level) not in levels:
