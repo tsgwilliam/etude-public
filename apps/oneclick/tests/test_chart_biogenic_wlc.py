@@ -3,14 +3,13 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from oneclick_core.charts import (
     DEFAULT_WLC_MODULES,
     UPFRONT_MODULES,
+    aggregate_chart_data,
     filter_rows_for_modules,
-    modules_include_lifecycle,
     pick_chart_value_col,
     plot_rics_single_stack,
     plot_rics_two_stacks,
@@ -42,61 +41,38 @@ def john_lobb_rows():
     return dataset.rows
 
 
-def test_modules_include_lifecycle():
-    assert modules_include_lifecycle(UPFRONT_MODULES) is False
-    assert modules_include_lifecycle(DEFAULT_WLC_MODULES) is True
+def test_stacks_exclude_bioc_section(john_lobb_rows):
+    for modules in (UPFRONT_MODULES, DEFAULT_WLC_MODULES):
+        rr = filter_rows_for_modules(john_lobb_rows, modules)
+        assert "bioC" not in set(rr["section"].astype(str))
 
 
-def test_wlc_nets_biogenic_into_categories(john_lobb_rows):
-    rr = filter_rows_for_modules(john_lobb_rows, DEFAULT_WLC_MODULES)
-    assert "bioC" in set(rr["section"].astype(str))
-    vc = pick_chart_value_col(rr)
-    by_high = rr.groupby("chart_high")[vc].sum() / GIA
-    # Matches John Lobb spreadsheet Total excl B6&B7 (bio netted per category).
-    assert abs(float(by_high["Substructure"]) - 288.9) < 1.0
-    assert abs(float(by_high["Superstructure"]) - 199.6) < 3.0
-
-
-def test_upfront_excludes_biogenic_from_stack(john_lobb_rows):
+def test_upfront_gross_intensities(john_lobb_rows):
     rr = filter_rows_for_modules(john_lobb_rows, UPFRONT_MODULES)
-    assert "bioC" not in set(rr["section"].astype(str).str.lower())
     vc = pick_chart_value_col(rr)
     by_high = rr.groupby("chart_high")[vc].sum() / GIA
     assert abs(float(by_high["Substructure"]) - 277.4) < 1.0
     assert abs(float(by_high["Superstructure"]) - 178.1) < 1.0
 
 
-def test_biogenic_bar_labeled_on_upfront_only(john_lobb_rows):
-    fig_up = plot_rics_single_stack(
-        john_lobb_rows,
-        UPFRONT_MODULES,
-        title="up",
-        use_intensity=True,
-        gia_m2=GIA,
-    )
-    bio_texts = [
-        t.text[0]
-        for t in fig_up.data
-        if getattr(t, "text", None) and t.text and str(t.text[0]).startswith("Biogenic")
-    ]
-    assert bio_texts, "Upfront chart should label the biogenic bar"
-
-    fig_wlc = plot_rics_single_stack(
-        john_lobb_rows,
-        DEFAULT_WLC_MODULES,
-        title="wlc",
-        use_intensity=True,
-        gia_m2=GIA,
-    )
-    bio_texts_wlc = [
-        t.text[0]
-        for t in fig_wlc.data
-        if getattr(t, "text", None) and t.text and str(t.text[0]).startswith("Biogenic")
-    ]
-    assert not bio_texts_wlc, "WLC nets biogenic into categories — no separate bio bar"
+def test_biogenic_bar_labeled_on_upfront_and_wlc(john_lobb_rows):
+    for modules in (UPFRONT_MODULES, DEFAULT_WLC_MODULES):
+        fig = plot_rics_single_stack(
+            john_lobb_rows,
+            modules,
+            title="t",
+            use_intensity=True,
+            gia_m2=GIA,
+        )
+        bio_texts = [
+            t.text[0]
+            for t in fig.data
+            if getattr(t, "text", None) and t.text and str(t.text[0]).startswith("Biogenic")
+        ]
+        assert bio_texts, f"Expected labeled biogenic bar for {modules}"
 
 
-def test_two_stack_totals_sit_below_biogenic(john_lobb_rows):
+def test_two_stack_shows_biogenic_on_both(john_lobb_rows):
     fig = plot_rics_two_stacks(
         john_lobb_rows,
         UPFRONT_MODULES,
@@ -106,10 +82,20 @@ def test_two_stack_totals_sit_below_biogenic(john_lobb_rows):
         gia_m2=GIA,
         project_contingency_pct=9.0,
     )
-    # Biogenic bar is negative on the upfront stack only.
-    bio_ys = [float(t.y[0]) for t in fig.data if float(t.y[0]) < -1]
-    assert bio_ys, "Expected a biogenic bar under upfront"
-    bio_floor = min(bio_ys)
-    total_anns = [a for a in fig.layout.annotations if a.text and "Upfront" in str(a.text)]
+    bio_traces = [
+        t
+        for t in fig.data
+        if getattr(t, "text", None) and t.text and str(t.text[0]).startswith("Biogenic")
+    ]
+    assert len(bio_traces) == 2
+    bio_floor = min(float(t.y[0]) for t in bio_traces)
+    total_anns = [a for a in fig.layout.annotations if a.text and ("Upfront" in str(a.text) or "Whole life" in str(a.text))]
     assert total_anns
     assert all(float(a.y) < bio_floor for a in total_anns)
+
+
+def test_aggregate_export_includes_biogenic_row(john_lobb_rows):
+    agg = aggregate_chart_data(john_lobb_rows, DEFAULT_WLC_MODULES)
+    bio = agg[agg["chart_high"] == "Biogenic"]
+    assert len(bio) == 1
+    assert float(bio["value"].iloc[0]) < 0
