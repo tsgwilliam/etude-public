@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import sys
 from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+# Allow `streamlit run apps/oneclick/app.py` from the repo root (Streamlit Cloud).
+APP_DIR = Path(__file__).resolve().parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
 from oneclick_core.charts import (
     DEFAULT_WLC_MODULES,
@@ -17,7 +23,6 @@ from oneclick_core.config import building_names_for_uploads, create_project_work
 from oneclick_core.export import build_results_workbook_bytes
 from oneclick_core.pipeline import build_canonical_dataset
 
-APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = APP_DIR / "config"
 
 
