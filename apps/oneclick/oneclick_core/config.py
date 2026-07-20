@@ -38,8 +38,11 @@ class ProjectConfig:
         for _, row in self.label_overrides.iterrows():
             code = str(row[code_col]).strip()
             label = str(row[label_col]).strip()
-            if code and label:
-                out[code] = label
+            if not code or not label or code.lower() == "nan":
+                continue
+            if re.fullmatch(r"\d+\.0", code):
+                code = code[:-2]
+            out[code] = label
         return out
 
     def included_buildings(self) -> pd.DataFrame:

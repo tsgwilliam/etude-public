@@ -99,15 +99,18 @@ def resolve_nrm_label(
 ) -> str:
     defaults = defaults or {}
     overrides = overrides or {}
+    code = str(code or "").strip()
     if code in overrides and str(overrides[code]).strip():
         return str(overrides[code]).strip()
     if code in defaults and str(defaults[code]).strip():
         return str(defaults[code]).strip()
+    # Prefer the canonical label for the rolled-up code before falling back to
+    # the original OneClick detail string (which is often more granular).
+    if code in NRM_DEFAULT_LABELS:
+        return NRM_DEFAULT_LABELS[code]
     cleaned = clean_rics_label(detail_text)
     if cleaned:
         return cleaned
-    if code in NRM_DEFAULT_LABELS:
-        return NRM_DEFAULT_LABELS[code]
     return code or "Unclassified"
 
 

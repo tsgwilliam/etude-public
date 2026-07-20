@@ -124,6 +124,31 @@ def test_project_workbook_prefilled_from_uploads():
     assert project.buildings["gia_m2"].tolist() == [0.0, 0.0]
 
 
+def test_nrm_level_1_collapses_segment_labels():
+    from oneclick_core.mappings import load_label_defaults
+    from oneclick_core.nrm import add_nrm_columns
+    import pandas as pd
+
+    defaults = load_label_defaults(Path(__file__).resolve().parents[1] / "config" / "nrm_label_defaults.csv")
+    assert defaults.get("2") == "Superstructure"
+    assert "2.0" not in defaults
+
+    df = pd.DataFrame(
+        {
+            "rics_detail": [
+                "2.5.1.External enclosing walls above ground level",
+                "2.1.Frame",
+                "1.1.1.Standard foundations",
+            ],
+            "rics_alloc_label": ["2.5 Ext. Walls", "2.1 Frame", "1 Substructure"],
+            "kgco2e": [10.0, 20.0, 30.0],
+        }
+    )
+    out = add_nrm_columns(df, nrm_level=1, label_defaults=defaults)
+    assert set(out["chart_segment_code"]) == {"1", "2"}
+    assert set(out["chart_segment_label"]) == {"Substructure", "Superstructure"}
+
+
 def test_subtotal_rows_do_not_double_count_john_lobb():
     sample = Path(
         "/home/ubuntu/.cursor/projects/workspace/uploads/"

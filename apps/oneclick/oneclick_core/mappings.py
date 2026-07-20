@@ -97,8 +97,14 @@ def load_label_defaults(path: Path) -> dict[str, str]:
         return {}
     if "nrm_code" not in df.columns or "display_name" not in df.columns:
         return {}
-    return {
-        str(row.nrm_code).strip(): str(row.display_name).strip()
-        for row in df.itertuples(index=False)
-        if str(row.nrm_code).strip() and str(row.display_name).strip()
-    }
+    out: dict[str, str] = {}
+    for _, row in df.iterrows():
+        raw_code = str(row["nrm_code"]).strip()
+        label = str(row["display_name"]).strip()
+        if not raw_code or not label or raw_code.lower() == "nan":
+            continue
+        # Pandas may read 1 / 2 as 1.0 / 2.0 — normalise to NRM code strings.
+        if re.fullmatch(r"\d+\.0", raw_code):
+            raw_code = raw_code[:-2]
+        out[raw_code] = label
+    return out
