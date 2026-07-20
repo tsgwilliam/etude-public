@@ -45,10 +45,15 @@ NRM_DEFAULT_LABELS: dict[str, str] = {
     "3": "Finishes",
     "4": "Fittings, furnishings and equipment",
     "5": "Services",
+    "5.PV": "Photovoltaic systems",
     "6": "Prefabricated buildings and building units",
     "7": "Work to existing buildings",
     "8": "External works",
 }
+
+PV_CODE = "5.PV"
+PV_LABEL = "Photovoltaic systems"
+PV_PATTERN = re.compile(r"photovolta|\bpv\b|solar\s*pv|pv\s*panel", re.IGNORECASE)
 
 
 def extract_nrm_code(text: str) -> str:
@@ -56,23 +61,6 @@ def extract_nrm_code(text: str) -> str:
         return ""
     match = re.match(r"^(\d+(?:\.\d+)*)", str(text).strip())
     return match.group(1) if match else ""
-
-
-def nrm_at_level(code: str, level: int) -> str:
-    code = str(code or "").strip()
-    if not code:
-        return ""
-    parts = [p for p in code.split(".") if p]
-    if not parts:
-        return ""
-    if level <= 1:
-        return parts[0]
-    return ".".join(parts[: min(level, len(parts))])
-
-
-def nrm_high_from_code(code: str) -> str:
-    top = extract_nrm_code(code).split(".")[0] if code else ""
-    return NRM_HIGH_MAP.get(top, "Unclassified")
 
 
 def clean_rics_label(text: str) -> str:
@@ -85,10 +73,56 @@ def clean_rics_label(text: str) -> str:
 
 
 def parse_rics_numeric_tuple(text: str) -> tuple[int, ...]:
-    code = extract_nrm_code(text)
+    code = str(text or "").strip()
+    if code == PV_CODE:
+        return (5, 999)
+    code = extract_nrm_code(code)
     if not code:
         return (9999,)
-    return tuple(int(part) for part in code.split("."))
+    return tuple(int(part) for part in code.split(".") if part.isdigit()) or (9999,)
+
+
+def nrm_at_level(code: str, level: int) -> str:
+    code = str(code or "").strip()
+    if not code:
+        return ""
+    # Keep PV as its own segment from level 2+, but roll into Services (5) at level 1.
+    if code == PV_CODE:
+        return "5" if level <= 1 else PV_CODE
+    parts = [p for p in code.split(".") if p]
+    if not parts:
+        return ""
+    if level <= 1:
+        return parts[0]
+    return ".".join(parts[: min(level, len(parts))])
+
+
+def nrm_high_from_code(code: str) -> str:
+    code = str(code or "").strip()
+    if code == PV_CODE:
+        return "Services"
+    top = extract_nrm_code(code).split(".")[0] if code else ""
+    return NRM_HIGH_MAP.get(top, "Unclassified")
+
+
+def is_pv_text(*parts: str) -> bool:
+    blob = " ".join(str(p or "") for p in parts)
+    return bool(PV_PATTERN.search(blob))
+
+
+def available_nrm_levels(nrm_codes: pd.Series) -> list[int]:
+    """Return NRM display levels that exist in the data (1..4)."""
+    max_depth = 1
+    for code in nrm_codes.dropna().astype(str):
+        code = code.strip()
+        if not code or code.lower() == "nan":
+            continue
+        if code == PV_CODE:
+            max_depth = max(max_depth, 2)
+            continue
+        depth = len([p for p in code.split(".") if p])
+        max_depth = max(max_depth, min(depth, 4))
+    return list(range(1, max_depth + 1))
 
 
 def resolve_nrm_label(
@@ -100,6 +134,8 @@ def resolve_nrm_label(
     defaults = defaults or {}
     overrides = overrides or {}
     code = str(code or "").strip()
+    if code == PV_CODE:
+        return PV_LABEL
     if code in overrides and str(overrides[code]).strip():
         return str(overrides[code]).strip()
     if code in defaults and str(defaults[code]).strip():
@@ -134,6 +170,16 @@ def add_nrm_columns(
     if missing.any():
         out.loc[missing, "nrm_code"] = alloc.loc[missing].map(extract_nrm_code)
 
+    # Separate PV under Services: keep high-level = Services, distinct segment from level 2+.
+    resource = out["Resource"].astype(str) if "Resource" in out.columns else pd.Series("", index=out.index)
+    material = out["material_label"].astype(str) if "material_label" in out.columns else pd.Series("", index=out.index)
+    pv_mask = [
+        is_pv_text(r, m, d, a)
+        for r, m, d, a in zip(resource, material, source, alloc)
+    ]
+    out.loc[pv_mask, "nrm_code"] = PV_CODE
+    out["is_pv"] = pv_mask
+
     out["nrm_level_1"] = out["nrm_code"].map(lambda c: nrm_at_level(c, 1))
     out["nrm_level_2"] = out["nrm_code"].map(lambda c: nrm_at_level(c, 2))
     out["nrm_level_3"] = out["nrm_code"].map(lambda c: nrm_at_level(c, 3))
@@ -148,11 +194,53 @@ def add_nrm_columns(
 
     out["chart_segment_code"] = out[level_col]
     out["chart_high"] = out["nrm_code"].map(nrm_high_from_code)
+    # Force PV under Services even if original code was 6.
+    out.loc[out["is_pv"], "chart_high"] = "Services"
     out["chart_segment_label"] = [
         resolve_nrm_label(code, detail, label_defaults, label_overrides)
         for code, detail in zip(out["chart_segment_code"], source)
     ]
     out["chart_segment_id"] = out["chart_segment_code"].astype(str) + "|" + out["chart_segment_label"].astype(str)
+    return out
+
+
+def resolve_row_contingency_pct(
+    nrm_code: str,
+    project_pct: float,
+    contingency_map: dict[str, float] | None,
+) -> float:
+    """Manual NRM contingency overrides project-level; otherwise use project pct."""
+    contingency_map = contingency_map or {}
+    code = str(nrm_code or "").strip()
+    if not contingency_map:
+        return float(project_pct or 0.0)
+
+    # Longest matching prefix wins (e.g. 1.2.1 beats 1.2 beats 1).
+    best_code = ""
+    best_pct = None
+    for rule_code, pct in contingency_map.items():
+        rule = str(rule_code).strip()
+        if not rule:
+            continue
+        if code == rule or code.startswith(rule + "."):
+            if len(rule) >= len(best_code):
+                best_code = rule
+                best_pct = float(pct)
+    if best_pct is not None:
+        return best_pct
+    return float(project_pct or 0.0)
+
+
+def apply_contingency_rates(
+    df: pd.DataFrame,
+    project_pct: float = 0.0,
+    contingency_map: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    out = df.copy()
+    codes = out["nrm_code"] if "nrm_code" in out.columns else pd.Series("", index=out.index)
+    out["contingency_pct"] = [
+        resolve_row_contingency_pct(code, project_pct, contingency_map) for code in codes
+    ]
     return out
 
 

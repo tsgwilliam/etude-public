@@ -215,6 +215,49 @@ def _aggregate_for_plot(rr: pd.DataFrame, value_col: str, scale: float) -> pd.Da
     return agg
 
 
+def compute_contingency_total(
+    rr: pd.DataFrame,
+    value_col: str,
+    scale: float,
+    project_contingency_pct: float = 0.0,
+    contingency_map: dict[str, float] | None = None,
+) -> float:
+    if rr.empty:
+        return 0.0
+    from oneclick_core.nrm import resolve_row_contingency_pct
+
+    contingency_map = contingency_map or {}
+    if not contingency_map and not project_contingency_pct:
+        return 0.0
+
+    codes = rr["nrm_code"] if "nrm_code" in rr.columns else pd.Series("", index=rr.index)
+    values = pd.to_numeric(rr[value_col], errors="coerce").fillna(0.0)
+    total = 0.0
+    for code, value in zip(codes, values):
+        pct = resolve_row_contingency_pct(str(code), project_contingency_pct, contingency_map)
+        total += float(value) * (pct / 100.0)
+    return total * scale
+
+
+def _append_contingency_segment(
+    segments: list[dict],
+    contingency_total: float,
+    contingency_colour: str = "#6C6C6C",
+) -> list[dict]:
+    if contingency_total <= 1e-9:
+        return segments
+    out = list(segments)
+    out.append(
+        {
+            "high": "Contingency",
+            "seg": "Contingency",
+            "value": contingency_total,
+            "colour": contingency_colour,
+        }
+    )
+    return out
+
+
 def plot_rics_single_stack(
     rows: pd.DataFrame,
     modules: list[str],
@@ -224,11 +267,14 @@ def plot_rics_single_stack(
     collapsed_high_level: bool = False,
     colour_map: dict[str, str] | None = None,
     biogenic_colour: str = "#2B0FC9",
+    contingency_colour: str = "#6C6C6C",
     height_px: int = 900,
     bar_width: float = 0.66,
     small_segment_threshold: float = 0.03,
     target_line_value: float | None = None,
     target_line_label: str = "",
+    project_contingency_pct: float = 0.0,
+    contingency_map: dict[str, float] | None = None,
     em_col: str = "kgco2e",
 ) -> go.Figure:
     rr = filter_rows_for_modules(rows, modules)
@@ -238,12 +284,19 @@ def plot_rics_single_stack(
 
     agg = _aggregate_for_plot(rr, value_col, scale)
     segments, high_order, _ = _build_segments(agg, colour_map)
+    contingency_total = compute_contingency_total(
+        rr, value_col, scale, project_contingency_pct, contingency_map
+    )
+    segments = _append_contingency_segment(segments, contingency_total, contingency_colour)
+    if contingency_total > 1e-9 and "Contingency" not in high_order:
+        high_order = list(high_order) + ["Contingency"]
+
     total_pos = sum(s["value"] for s in segments) or 1.0
     fig = go.Figure()
 
     for seg in segments:
         share = seg["value"] / total_pos
-        is_small = share < small_segment_threshold
+        is_small = share < small_segment_threshold and seg["high"] != "Contingency"
         text = None if collapsed_high_level or is_small else f"{seg['seg']} {seg['value']:,.0f}"
         fig.add_trace(
             go.Bar(
@@ -263,13 +316,18 @@ def plot_rics_single_stack(
 
     if collapsed_high_level:
         running = 0.0
-        for high in high_order:
-            high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
+        label_rows = list(high_order)
+        for high in label_rows:
+            if high == "Contingency":
+                high_value = contingency_total
+                colour = contingency_colour
+            else:
+                high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
+                colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
             if high_value <= 1e-9:
                 continue
             mid = running + high_value / 2.0
             running += high_value
-            colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
             fig.add_annotation(
                 x=0.5,
                 xref="paper",
@@ -327,22 +385,31 @@ def plot_rics_two_stacks(
     collapsed_high_level: bool = False,
     colour_map: dict[str, str] | None = None,
     biogenic_colour: str = "#2B0FC9",
+    contingency_colour: str = "#6C6C6C",
     height_px: int = 900,
     bar_width: float = 0.66,
+    project_contingency_pct: float = 0.0,
+    contingency_map: dict[str, float] | None = None,
     em_col: str = "kgco2e",
 ) -> go.Figure:
     scale = 1.0 / float(gia_m2) if use_intensity and gia_m2 > 0 else 1.0
     y_unit = "kgCO₂e/m² GIA" if scale != 1.0 else "kgCO₂e"
 
-    def stack_data(modules: list[str]) -> tuple[list[dict], pd.DataFrame, list[str]]:
+    def stack_data(modules: list[str]) -> tuple[list[dict], pd.DataFrame, list[str], float]:
         rr = filter_rows_for_modules(rows, modules)
         value_col = pick_chart_value_col(rr, em_col)
         agg = _aggregate_for_plot(rr, value_col, scale)
         segments, high_order, _ = _build_segments(agg, colour_map)
-        return segments, agg, high_order
+        contingency_total = compute_contingency_total(
+            rr, value_col, scale, project_contingency_pct, contingency_map
+        )
+        segments = _append_contingency_segment(segments, contingency_total, contingency_colour)
+        if contingency_total > 1e-9 and "Contingency" not in high_order:
+            high_order = list(high_order) + ["Contingency"]
+        return segments, agg, high_order, contingency_total
 
-    upfront_segments, upfront_agg, upfront_high_order = stack_data(upfront_modules)
-    wlc_segments, wlc_agg, wlc_high_order = stack_data(whole_life_modules)
+    upfront_segments, upfront_agg, upfront_high_order, upfront_cont = stack_data(upfront_modules)
+    wlc_segments, wlc_agg, wlc_high_order, wlc_cont = stack_data(whole_life_modules)
     upfront_total = sum(s["value"] for s in upfront_segments)
     wlc_total = sum(s["value"] for s in wlc_segments)
 
@@ -367,17 +434,21 @@ def plot_rics_two_stacks(
                 )
             )
 
-    def add_high_labels(x_pos: float, agg: pd.DataFrame, high_order: list[str]):
+    def add_high_labels(x_pos: float, agg: pd.DataFrame, high_order: list[str], contingency_total: float):
         if not collapsed_high_level:
             return
         running = 0.0
         for high in high_order:
-            high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
+            if high == "Contingency":
+                high_value = contingency_total
+                colour = contingency_colour
+            else:
+                high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
+                colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
             if high_value <= 1e-9:
                 continue
             mid = running + high_value / 2.0
             running += high_value
-            colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
             fig.add_annotation(
                 x=x_pos,
                 y=mid,
@@ -388,8 +459,8 @@ def plot_rics_two_stacks(
 
     add_stack(x_upfront, upfront_segments)
     add_stack(x_wlc, wlc_segments)
-    add_high_labels(x_upfront, upfront_agg, upfront_high_order)
-    add_high_labels(x_wlc, wlc_agg, wlc_high_order)
+    add_high_labels(x_upfront, upfront_agg, upfront_high_order, upfront_cont)
+    add_high_labels(x_wlc, wlc_agg, wlc_high_order, wlc_cont)
 
     for modules, x_pos in [(upfront_modules, x_upfront), (whole_life_modules, x_wlc)]:
         bio_total = compute_biogenic_total(rows, modules=modules, em_col=em_col, scale=scale)

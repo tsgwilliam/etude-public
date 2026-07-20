@@ -15,6 +15,15 @@ def _truthy(value) -> bool:
     return str(value).strip().lower() in {"yes", "y", "true", "1", "include", "x"}
 
 
+def _normalise_nrm_code_key(raw: str) -> str:
+    code = str(raw or "").strip()
+    if not code or code.lower() == "nan":
+        return ""
+    if re.fullmatch(r"\d+\.0", code):
+        code = code[:-2]
+    return code
+
+
 def _read_sheet(source: Path | BinaryIO, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(source, sheet_name=sheet_name, engine="openpyxl")
 
@@ -24,6 +33,7 @@ class ProjectConfig:
     buildings: pd.DataFrame = field(default_factory=pd.DataFrame)
     manual_additions: pd.DataFrame = field(default_factory=pd.DataFrame)
     label_overrides: pd.DataFrame = field(default_factory=pd.DataFrame)
+    contingency: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     @property
     def label_override_map(self) -> dict[str, str]:
@@ -36,13 +46,30 @@ class ProjectConfig:
             return {}
         out = {}
         for _, row in self.label_overrides.iterrows():
-            code = str(row[code_col]).strip()
+            code = _normalise_nrm_code_key(row[code_col])
             label = str(row[label_col]).strip()
-            if not code or not label or code.lower() == "nan":
+            if code and label:
+                out[code] = label
+        return out
+
+    @property
+    def contingency_map(self) -> dict[str, float]:
+        """Map NRM code -> contingency percent (0-100)."""
+        if self.contingency.empty:
+            return {}
+        cols = {c.lower(): c for c in self.contingency.columns}
+        code_col = cols.get("nrm_code")
+        pct_col = cols.get("contingency_pct") or cols.get("contingency_%") or cols.get("pct")
+        if not code_col or not pct_col:
+            return {}
+        out: dict[str, float] = {}
+        for _, row in self.contingency.iterrows():
+            code = _normalise_nrm_code_key(row[code_col])
+            pct_raw = pd.to_numeric(row[pct_col], errors="coerce")
+            if not code or pd.isna(pct_raw):
                 continue
-            if re.fullmatch(r"\d+\.0", code):
-                code = code[:-2]
-            out[code] = label
+            # Include 0% so an explicit row can override project-level contingency down to zero.
+            out[code] = float(pct_raw)
         return out
 
     def included_buildings(self) -> pd.DataFrame:
@@ -62,6 +89,7 @@ def load_project_workbook(source: Path | BinaryIO | None) -> ProjectConfig:
     buildings = pd.DataFrame()
     manual = pd.DataFrame()
     overrides = pd.DataFrame()
+    contingency = pd.DataFrame()
 
     try:
         xl = pd.ExcelFile(source, engine="openpyxl")
@@ -74,11 +102,14 @@ def load_project_workbook(source: Path | BinaryIO | None) -> ProjectConfig:
         manual = _read_sheet(source, "Manual_Additions")
     if "Label_Overrides" in xl.sheet_names:
         overrides = _read_sheet(source, "Label_Overrides")
+    if "Contingency" in xl.sheet_names:
+        contingency = _read_sheet(source, "Contingency")
 
     return ProjectConfig(
         buildings=buildings,
         manual_additions=manual,
         label_overrides=overrides,
+        contingency=contingency,
     )
 
 
@@ -195,11 +226,19 @@ def create_project_workbook_bytes(
             }
         )
 
+    if existing is not None and not existing.contingency.empty:
+        contingency = existing.contingency.copy()
+    else:
+        # Empty by default — add rows like nrm_code=1.2.1, contingency_pct=5 to
+        # override the optional sidebar project-level contingency for that code only.
+        contingency = pd.DataFrame(columns=["nrm_code", "contingency_pct", "notes"])
+
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         buildings.to_excel(writer, sheet_name="Buildings", index=False)
         manual.to_excel(writer, sheet_name="Manual_Additions", index=False)
         overrides.to_excel(writer, sheet_name="Label_Overrides", index=False)
+        contingency.to_excel(writer, sheet_name="Contingency", index=False)
     return buffer.getvalue()
 
 

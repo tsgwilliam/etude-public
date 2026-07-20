@@ -21,6 +21,7 @@ from oneclick_core.charts import (
 )
 from oneclick_core.config import building_names_for_uploads, create_project_workbook_bytes, load_project_workbook
 from oneclick_core.export import build_results_workbook_bytes
+from oneclick_core.nrm import available_nrm_levels
 from oneclick_core.pipeline import build_canonical_dataset
 
 CONFIG_DIR = APP_DIR / "config"
@@ -49,7 +50,8 @@ def main() -> None:
     st.title("Etude OneClick LCA reporting")
     st.caption(
         "Upload OneClick detailReport exports and an optional project workbook. "
-        "Global mappings live in the repo CSVs; project-specific GIA and manual rows live in the workbook."
+        "Global mappings live in the repo CSVs; project-specific GIA, manual rows, "
+        "and per-NRM contingency live in the workbook."
     )
 
     col_a, col_b = st.columns(2)
@@ -63,7 +65,11 @@ def main() -> None:
         project_file = st.file_uploader(
             "Project workbook (.xlsx)",
             type=["xlsx"],
-            help="Use the template for Buildings, Manual_Additions, and Label_Overrides sheets.",
+            help=(
+                "Sheets: Buildings, Manual_Additions, Label_Overrides, Contingency. "
+                "Contingency rows set a % per NRM code and override the optional "
+                "project-level contingency for matching codes only."
+            ),
         )
 
     if uploaded_files:
@@ -114,6 +120,10 @@ def main() -> None:
             existing=project if not project.buildings.empty else None,
         )
 
+    nrm_level_options = st.session_state.get("available_nrm_levels", [1, 2, 3, 4])
+    if "nrm_level" in st.session_state and st.session_state["nrm_level"] not in nrm_level_options:
+        st.session_state["nrm_level"] = nrm_level_options[min(1, len(nrm_level_options) - 1)]
+
     with st.sidebar:
         st.header("Controls")
         chart_choice = st.radio(
@@ -125,14 +135,46 @@ def main() -> None:
             ],
             index=0,
         )
-        nrm_level = st.selectbox("NRM display level", options=[1, 2, 3, 4], index=1)
+        default_level = 2 if 2 in nrm_level_options else nrm_level_options[0]
+        if "nrm_level" not in st.session_state:
+            st.session_state["nrm_level"] = default_level
+        nrm_level = st.selectbox(
+            "NRM display level",
+            options=nrm_level_options,
+            key="nrm_level",
+            help="Only levels present in the uploaded data are listed.",
+        )
         selected_buildings = st.multiselect("Buildings", options=building_names, default=building_names)
         use_intensity = st.checkbox("Show intensity (per m² GIA)", value=True)
         chart_height = st.slider("Chart height (px)", 500, 1600, 900, 50)
-        collapsed_high_level = st.checkbox("Show only high-level NRM labels", value=nrm_level == 1)
+        collapsed_high_level = st.checkbox("Show only high-level NRM labels", value=int(nrm_level) == 1)
         show_target = st.checkbox("Show benchmark line", value=False)
         target_value = st.number_input("Benchmark value", value=0.0, step=1.0, disabled=not show_target)
         target_label = st.text_input("Benchmark label", value="Target", disabled=not show_target)
+
+        st.divider()
+        st.subheader("Contingency")
+        project_contingency_pct = st.number_input(
+            "Project contingency (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+            step=0.5,
+            help=(
+                "Optional. Applied to every NRM category that does not have a "
+                "manual % on the Contingency sheet. Manual per-code values override "
+                "this project rate (they do not stack)."
+            ),
+        )
+        contingency_colour = st.color_picker("Contingency colour", value="#6C6C6C")
+        cont_map = project.contingency_map
+        if cont_map:
+            st.caption(
+                "Workbook Contingency overrides: "
+                + ", ".join(f"{code} → {pct:g}%" for code, pct in sorted(cont_map.items()))
+            )
+        else:
+            st.caption("No per-NRM contingency rows in the project workbook (optional).")
 
     try:
         dataset = build_canonical_dataset(
@@ -154,6 +196,15 @@ def main() -> None:
         st.warning("No rows matched the selected buildings.")
         return
 
+    levels = available_nrm_levels(rows["nrm_code"])
+    if levels and levels != st.session_state.get("available_nrm_levels"):
+        st.session_state["available_nrm_levels"] = levels
+        if int(nrm_level) not in levels:
+            st.session_state["nrm_level"] = levels[min(1, len(levels) - 1)]
+            st.rerun()
+
+    contingency_map = project.contingency_map
+
     gia_by_building = (
         rows.groupby("building_name", dropna=False)["building_gia_m2"]
         .first()
@@ -173,29 +224,33 @@ def main() -> None:
     title_suffix = ", ".join(selected_buildings) if len(selected_buildings) <= 3 else f"{len(selected_buildings)} buildings"
     target = float(target_value) if show_target else None
 
+    chart_kwargs = dict(
+        use_intensity=use_intensity,
+        gia_m2=total_gia,
+        collapsed_high_level=collapsed_high_level,
+        height_px=chart_height,
+        project_contingency_pct=float(project_contingency_pct),
+        contingency_map=contingency_map,
+        contingency_colour=contingency_colour,
+    )
+
     if chart_choice.startswith("1"):
         fig = plot_rics_single_stack(
             rows=rows,
             modules=UPFRONT_MODULES,
             title=f"Upfront embodied carbon (A1–A5) — {title_suffix}",
-            use_intensity=use_intensity,
-            gia_m2=total_gia,
-            collapsed_high_level=collapsed_high_level,
-            height_px=chart_height,
             target_line_value=target,
             target_line_label=target_label,
+            **chart_kwargs,
         )
     elif chart_choice.startswith("2"):
         fig = plot_rics_single_stack(
             rows=rows,
             modules=DEFAULT_WLC_MODULES,
             title=f"Life cycle embodied carbon — {title_suffix}",
-            use_intensity=use_intensity,
-            gia_m2=total_gia,
-            collapsed_high_level=collapsed_high_level,
-            height_px=chart_height,
             target_line_value=target,
             target_line_label=target_label,
+            **chart_kwargs,
         )
     else:
         fig = plot_rics_two_stacks(
@@ -203,10 +258,7 @@ def main() -> None:
             upfront_modules=UPFRONT_MODULES,
             whole_life_modules=DEFAULT_WLC_MODULES,
             title=f"Upfront + life cycle embodied carbon — {title_suffix}",
-            use_intensity=use_intensity,
-            gia_m2=total_gia,
-            collapsed_high_level=collapsed_high_level,
-            height_px=chart_height,
+            **chart_kwargs,
         )
 
     st.plotly_chart(fig, use_container_width=True)
