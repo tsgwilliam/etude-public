@@ -23,6 +23,31 @@ def expand_modules(modules: list[str]) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
+def modules_include_lifecycle(modules: list[str]) -> bool:
+    """True when the chart covers B/C stages (whole-life), not upfront-only."""
+    return any(str(m).upper().startswith(("B", "C")) for m in expand_modules(modules))
+
+
+def filter_rows_for_modules(
+    rows: pd.DataFrame,
+    modules: list[str],
+    *,
+    net_biogenic: bool | None = None,
+) -> pd.DataFrame:
+    """Filter to chart modules.
+
+    For whole-life charts, biogenic (bioC) is netted into NRM categories so totals
+    match Etude spreadsheet 'Total excl B6 & B7' (which does SUM(biogenic, A–C)).
+    Upfront charts keep bioC out of the stack and draw it as a separate bar.
+    """
+    wanted = expand_modules(modules)
+    if net_biogenic is None:
+        net_biogenic = modules_include_lifecycle(modules)
+    if net_biogenic:
+        wanted = list(dict.fromkeys([*wanted, "bioC"]))
+    return rows[rows["section"].isin(wanted)].copy()
+
+
 def pick_chart_value_col(df: pd.DataFrame, em_col: str = "kgco2e") -> str:
     if "rics_allocated_value" in df.columns:
         return "rics_allocated_value"
@@ -94,16 +119,17 @@ def compute_biogenic_total(
     sec = rr["section"].astype(str).str.strip().str.lower()
     bio_rows = rr[sec.eq("bioc")].copy()
     if not bio_rows.empty:
+        value_col = pick_chart_value_col(bio_rows, em_col)
         if "_source_row_id" in bio_rows.columns:
             total = (
-                bio_rows.groupby("_source_row_id", dropna=False)[em_col]
+                bio_rows.groupby("_source_row_id", dropna=False)[value_col]
                 .first()
                 .pipe(pd.to_numeric, errors="coerce")
                 .fillna(0.0)
                 .sum()
             )
         else:
-            total = pd.to_numeric(bio_rows[em_col], errors="coerce").fillna(0.0).sum()
+            total = pd.to_numeric(bio_rows[value_col], errors="coerce").fillna(0.0).sum()
         return float(abs(total) * scale)
 
     bio_col = None
@@ -128,8 +154,50 @@ def compute_biogenic_total(
     return float(abs(total) * scale)
 
 
-def filter_rows_for_modules(rows: pd.DataFrame, modules: list[str]) -> pd.DataFrame:
-    return rows[rows["section"].isin(expand_modules(modules))].copy()
+def _total_label_y(positive_total: float, bio_value: float) -> float:
+    """Place stack totals below the lowest bar (biogenic or zero)."""
+    floor = min(0.0, -abs(bio_value) if abs(bio_value) > 1e-9 else 0.0)
+    span = max(abs(positive_total), abs(floor), 1.0)
+    return floor - span * 0.14
+
+
+def _add_biogenic_bar(
+    fig: go.Figure,
+    *,
+    x,
+    bio_total: float,
+    width: float,
+    biogenic_colour: str,
+    y_unit: str,
+    collapsed_high_level: bool = False,
+) -> None:
+    if bio_total <= 1e-9:
+        return
+    bio_y = -abs(bio_total)
+    label = None if collapsed_high_level else f"Biogenic {bio_y:,.0f}"
+    fig.add_trace(
+        go.Bar(
+            x=[x],
+            y=[bio_y],
+            width=width,
+            marker=dict(color=biogenic_colour, line=dict(color="white", width=1)),
+            showlegend=False,
+            text=[label] if label else None,
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(color="white" if luminance_from_hex(biogenic_colour) < 0.55 else "black"),
+            hovertemplate=f"Biogenic: %{{y:,.0f}} {y_unit}<extra></extra>",
+        )
+    )
+    if collapsed_high_level:
+        fig.add_annotation(
+            x=x if not isinstance(x, str) or x != "" else 0.5,
+            xref="x" if not isinstance(x, str) or x != "" else "paper",
+            y=bio_y / 2.0,
+            text=f"Biogenic {bio_y:,.0f}",
+            showarrow=False,
+            font=dict(color="white" if luminance_from_hex(biogenic_colour) < 0.55 else "black", size=12),
+        )
 
 
 def aggregate_chart_data(rows: pd.DataFrame, modules: list[str], em_col: str = "kgco2e") -> pd.DataFrame:
@@ -183,7 +251,7 @@ def _build_segments(
         palette = shade_palette(colour_map.get(high, get_default_rics_colour(high)), max(1, len(seg_order.get(high, []))))
         for idx, seg in enumerate(seg_order.get(high, [])):
             value = float(agg.loc[agg["chart_segment_label"] == seg, "value"].sum())
-            if value <= 1e-9:
+            if abs(value) <= 1e-9:
                 continue
             segments.append(
                 {
@@ -277,7 +345,8 @@ def plot_rics_single_stack(
     contingency_map: dict[str, float] | None = None,
     em_col: str = "kgco2e",
 ) -> go.Figure:
-    rr = filter_rows_for_modules(rows, modules)
+    net_biogenic = modules_include_lifecycle(modules)
+    rr = filter_rows_for_modules(rows, modules, net_biogenic=net_biogenic)
     value_col = pick_chart_value_col(rr, em_col)
     scale = 1.0 / float(gia_m2) if use_intensity and gia_m2 > 0 else 1.0
     y_unit = "kgCO₂e/m² GIA" if scale != 1.0 else "kgCO₂e"
@@ -291,11 +360,13 @@ def plot_rics_single_stack(
     if contingency_total > 1e-9 and "Contingency" not in high_order:
         high_order = list(high_order) + ["Contingency"]
 
-    total_pos = sum(s["value"] for s in segments) or 1.0
+    # Positive share for small-segment threshold (ignore negative netted slices).
+    total_pos = sum(s["value"] for s in segments if s["value"] > 0) or 1.0
+    stack_total = sum(s["value"] for s in segments)
     fig = go.Figure()
 
     for seg in segments:
-        share = seg["value"] / total_pos
+        share = abs(seg["value"]) / total_pos
         is_small = share < small_segment_threshold and seg["high"] != "Contingency"
         text = None if collapsed_high_level or is_small else f"{seg['seg']} {seg['value']:,.0f}"
         fig.add_trace(
@@ -324,7 +395,7 @@ def plot_rics_single_stack(
             else:
                 high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
                 colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
-            if high_value <= 1e-9:
+            if abs(high_value) <= 1e-9:
                 continue
             mid = running + high_value / 2.0
             running += high_value
@@ -337,18 +408,28 @@ def plot_rics_single_stack(
                 font=dict(color="white" if luminance_from_hex(colour) < 0.5 else "black", size=12),
             )
 
-    bio_total = compute_biogenic_total(rows, modules=modules, em_col=em_col, scale=scale)
-    if bio_total > 1e-9:
-        fig.add_trace(
-            go.Bar(
-                x=[""],
-                y=[-abs(bio_total)],
-                width=bar_width,
-                marker=dict(color=biogenic_colour),
-                showlegend=False,
-                hovertemplate=f"Biogenic: %{{y:,.0f}} {y_unit}<extra></extra>",
-            )
+    # Upfront: separate biogenic bar. Whole-life: bioC already netted into NRM stacks.
+    bio_drawn = 0.0
+    if not net_biogenic:
+        bio_drawn = compute_biogenic_total(rows, modules=modules, em_col=em_col, scale=scale)
+        _add_biogenic_bar(
+            fig,
+            x="",
+            bio_total=bio_drawn,
+            width=bar_width,
+            biogenic_colour=biogenic_colour,
+            y_unit=y_unit,
+            collapsed_high_level=collapsed_high_level,
         )
+
+    fig.add_annotation(
+        x=0.5,
+        xref="paper",
+        y=_total_label_y(stack_total, bio_drawn),
+        text=f"{stack_total:,.0f} {y_unit}",
+        showarrow=False,
+        font=dict(size=14),
+    )
 
     fig.update_layout(
         barmode="relative",
@@ -356,7 +437,7 @@ def plot_rics_single_stack(
         title=title,
         yaxis_title=y_unit,
         showlegend=False,
-        margin=dict(l=40, r=40, t=70, b=40),
+        margin=dict(l=40, r=40, t=70, b=100),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
@@ -395,8 +476,9 @@ def plot_rics_two_stacks(
     scale = 1.0 / float(gia_m2) if use_intensity and gia_m2 > 0 else 1.0
     y_unit = "kgCO₂e/m² GIA" if scale != 1.0 else "kgCO₂e"
 
-    def stack_data(modules: list[str]) -> tuple[list[dict], pd.DataFrame, list[str], float]:
-        rr = filter_rows_for_modules(rows, modules)
+    def stack_data(modules: list[str]) -> tuple[list[dict], pd.DataFrame, list[str], float, bool]:
+        net_biogenic = modules_include_lifecycle(modules)
+        rr = filter_rows_for_modules(rows, modules, net_biogenic=net_biogenic)
         value_col = pick_chart_value_col(rr, em_col)
         agg = _aggregate_for_plot(rr, value_col, scale)
         segments, high_order, _ = _build_segments(agg, colour_map)
@@ -406,10 +488,12 @@ def plot_rics_two_stacks(
         segments = _append_contingency_segment(segments, contingency_total, contingency_colour)
         if contingency_total > 1e-9 and "Contingency" not in high_order:
             high_order = list(high_order) + ["Contingency"]
-        return segments, agg, high_order, contingency_total
+        return segments, agg, high_order, contingency_total, net_biogenic
 
-    upfront_segments, upfront_agg, upfront_high_order, upfront_cont = stack_data(upfront_modules)
-    wlc_segments, wlc_agg, wlc_high_order, wlc_cont = stack_data(whole_life_modules)
+    upfront_segments, upfront_agg, upfront_high_order, upfront_cont, upfront_net = stack_data(
+        upfront_modules
+    )
+    wlc_segments, wlc_agg, wlc_high_order, wlc_cont, wlc_net = stack_data(whole_life_modules)
     upfront_total = sum(s["value"] for s in upfront_segments)
     wlc_total = sum(s["value"] for s in wlc_segments)
 
@@ -445,7 +529,7 @@ def plot_rics_two_stacks(
             else:
                 high_value = float(agg.loc[agg["chart_high"] == high, "value"].sum())
                 colour = colour_map.get(high, get_default_rics_colour(high)) if colour_map else get_default_rics_colour(high)
-            if high_value <= 1e-9:
+            if abs(high_value) <= 1e-9:
                 continue
             mid = running + high_value / 2.0
             running += high_value
@@ -462,40 +546,55 @@ def plot_rics_two_stacks(
     add_high_labels(x_upfront, upfront_agg, upfront_high_order, upfront_cont)
     add_high_labels(x_wlc, wlc_agg, wlc_high_order, wlc_cont)
 
-    for modules, x_pos in [(upfront_modules, x_upfront), (whole_life_modules, x_wlc)]:
+    bio_by_x: dict[float, float] = {x_upfront: 0.0, x_wlc: 0.0}
+    for modules, x_pos, already_netted in [
+        (upfront_modules, x_upfront, upfront_net),
+        (whole_life_modules, x_wlc, wlc_net),
+    ]:
+        if already_netted:
+            continue
         bio_total = compute_biogenic_total(rows, modules=modules, em_col=em_col, scale=scale)
-        if bio_total > 1e-9:
-            fig.add_trace(
-                go.Bar(
-                    x=[x_pos],
-                    y=[-abs(bio_total)],
-                    width=actual_width,
-                    marker=dict(color=biogenic_colour),
-                    showlegend=False,
-                    hovertemplate=f"Biogenic: %{{y:,.0f}} {y_unit}<extra></extra>",
-                )
-            )
+        bio_by_x[x_pos] = bio_total
+        _add_biogenic_bar(
+            fig,
+            x=x_pos,
+            bio_total=bio_total,
+            width=actual_width,
+            biogenic_colour=biogenic_colour,
+            y_unit=y_unit,
+            collapsed_high_level=collapsed_high_level,
+        )
 
-    for label, x_pos in [
-        (f"Upfront<br>{upfront_total:,.0f} {y_unit}", x_upfront),
-        (f"Whole life cycle<br>{wlc_total:,.0f} {y_unit}", x_wlc),
+    for label, x_pos, stack_total in [
+        (f"Upfront<br>{upfront_total:,.0f} {y_unit}", x_upfront, upfront_total),
+        (f"Whole life cycle<br>{wlc_total:,.0f} {y_unit}", x_wlc, wlc_total),
     ]:
         fig.add_annotation(
             x=x_pos,
-            y=-max(upfront_total, wlc_total, 1.0) * 0.08,
+            y=_total_label_y(stack_total, bio_by_x.get(x_pos, 0.0)),
             text=label,
             showarrow=False,
             font=dict(size=14),
+            yanchor="top",
         )
 
+    lowest = min(
+        _total_label_y(upfront_total, bio_by_x[x_upfront]),
+        _total_label_y(wlc_total, bio_by_x[x_wlc]),
+    )
     fig.update_layout(
         barmode="relative",
         height=height_px,
         title=title,
         yaxis_title=y_unit,
         showlegend=False,
-        xaxis=dict(tickvals=[x_upfront, x_wlc], ticktext=["Upfront", "Whole life cycle"], range=[-0.75, 2.0]),
-        margin=dict(l=40, r=40, t=70, b=80),
+        xaxis=dict(
+            tickvals=[x_upfront, x_wlc],
+            ticktext=["Upfront", "Whole life cycle"],
+            range=[-0.75, 2.0],
+        ),
+        yaxis=dict(range=[lowest * 1.35, None]),
+        margin=dict(l=40, r=40, t=70, b=110),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
