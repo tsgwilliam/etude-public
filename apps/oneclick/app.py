@@ -24,7 +24,34 @@ from oneclick_core.export import build_results_workbook_bytes
 from oneclick_core.pipeline import build_canonical_dataset
 from oneclick_core import nrm as nrm_mod
 
+try:
+    from oneclick_core.config import CONFIG_MODULE_VERSION, contingency_map_from_table
+except ImportError:  # pragma: no cover - stale Streamlit Cloud module cache
+    import re as _re
+
+    CONFIG_MODULE_VERSION = "stale-config"
+
+    def contingency_map_from_table(contingency) -> dict[str, float]:
+        if contingency is None or not isinstance(contingency, pd.DataFrame) or contingency.empty:
+            return {}
+        cols = {c.lower(): c for c in contingency.columns}
+        code_col = cols.get("nrm_code")
+        pct_col = cols.get("contingency_pct") or cols.get("contingency_%") or cols.get("pct")
+        if not code_col or not pct_col:
+            return {}
+        out: dict[str, float] = {}
+        for _, row in contingency.iterrows():
+            code = str(row[code_col]).strip()
+            if _re.fullmatch(r"\d+\.0", code):
+                code = code[:-2]
+            pct_raw = pd.to_numeric(row[pct_col], errors="coerce")
+            if not code or code.lower() == "nan" or pd.isna(pct_raw):
+                continue
+            out[code] = float(pct_raw)
+        return out
+
 CONFIG_DIR = APP_DIR / "config"
+APP_DEPLOY_ID = f"oneclick-{CONFIG_MODULE_VERSION}"
 
 
 def _available_nrm_levels(nrm_codes: pd.Series) -> list[int]:
@@ -43,6 +70,17 @@ def _available_nrm_levels(nrm_codes: pd.Series) -> list[int]:
         depth = len([p for p in code.split(".") if p])
         max_depth = max(max_depth, min(depth, 4))
     return list(range(1, max_depth + 1))
+
+
+def _project_contingency_map(project) -> dict[str, float]:
+    """Resolve per-NRM contingency without assuming a fresh ProjectConfig class."""
+    try:
+        raw = getattr(project, "contingency_map", None)
+        if isinstance(raw, dict):
+            return dict(raw)
+    except AttributeError:
+        pass
+    return contingency_map_from_table(getattr(project, "contingency", None))
 
 
 def _uploads_from_session() -> list[tuple[str, bytes]]:
@@ -185,7 +223,7 @@ def main() -> None:
             ),
         )
         contingency_colour = st.color_picker("Contingency colour", value="#6C6C6C")
-        cont_map = project.contingency_map
+        cont_map = _project_contingency_map(project)
         if cont_map:
             st.caption(
                 "Workbook Contingency overrides: "
@@ -193,6 +231,7 @@ def main() -> None:
             )
         else:
             st.caption("No per-NRM contingency rows in the project workbook (optional).")
+        st.caption(f"Deploy: {APP_DEPLOY_ID}")
 
     try:
         dataset = build_canonical_dataset(
@@ -221,7 +260,7 @@ def main() -> None:
             st.session_state["nrm_level"] = levels[min(1, len(levels) - 1)]
             st.rerun()
 
-    contingency_map = project.contingency_map
+    contingency_map = _project_contingency_map(project)
 
     gia_by_building = (
         rows.groupby("building_name", dropna=False)["building_gia_m2"]

@@ -28,6 +28,30 @@ def _read_sheet(source: Path | BinaryIO, sheet_name: str) -> pd.DataFrame:
     return pd.read_excel(source, sheet_name=sheet_name, engine="openpyxl")
 
 
+# Bump when contingency/workbook schema changes so Streamlit Cloud picks up config.py.
+CONFIG_MODULE_VERSION = "2026-07-20-contingency-v2"
+
+
+def contingency_map_from_table(contingency: pd.DataFrame | None) -> dict[str, float]:
+    """Map NRM code -> contingency percent (0-100) from a Contingency sheet table."""
+    if contingency is None or not isinstance(contingency, pd.DataFrame) or contingency.empty:
+        return {}
+    cols = {c.lower(): c for c in contingency.columns}
+    code_col = cols.get("nrm_code")
+    pct_col = cols.get("contingency_pct") or cols.get("contingency_%") or cols.get("pct")
+    if not code_col or not pct_col:
+        return {}
+    out: dict[str, float] = {}
+    for _, row in contingency.iterrows():
+        code = _normalise_nrm_code_key(row[code_col])
+        pct_raw = pd.to_numeric(row[pct_col], errors="coerce")
+        if not code or pd.isna(pct_raw):
+            continue
+        # Include 0% so an explicit row can override project-level contingency down to zero.
+        out[code] = float(pct_raw)
+    return out
+
+
 @dataclass
 class ProjectConfig:
     buildings: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -55,22 +79,7 @@ class ProjectConfig:
     @property
     def contingency_map(self) -> dict[str, float]:
         """Map NRM code -> contingency percent (0-100)."""
-        if self.contingency.empty:
-            return {}
-        cols = {c.lower(): c for c in self.contingency.columns}
-        code_col = cols.get("nrm_code")
-        pct_col = cols.get("contingency_pct") or cols.get("contingency_%") or cols.get("pct")
-        if not code_col or not pct_col:
-            return {}
-        out: dict[str, float] = {}
-        for _, row in self.contingency.iterrows():
-            code = _normalise_nrm_code_key(row[code_col])
-            pct_raw = pd.to_numeric(row[pct_col], errors="coerce")
-            if not code or pd.isna(pct_raw):
-                continue
-            # Include 0% so an explicit row can override project-level contingency down to zero.
-            out[code] = float(pct_raw)
-        return out
+        return contingency_map_from_table(getattr(self, "contingency", None))
 
     def included_buildings(self) -> pd.DataFrame:
         if self.buildings.empty:
